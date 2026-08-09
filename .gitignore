@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# 虚拟环境
+rul_env/
+env/
+venv/
+
+# 数据文件（原始数据保留，处理后数据可选忽略）
+data/processed/
+
+# 日志
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 敏感配置
+*.env
+
+# 羊的PDF
+*.pdf
+extracted_pdf/
+# conda environment (do not commit)
+.conda/
