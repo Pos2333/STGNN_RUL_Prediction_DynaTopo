@@ -4,7 +4,8 @@
 
 本仓库为课题 **《基于图神经网络的航空发动机剩余寿命预测方法研究》** 的完整代码实现，基于 NASA C-MAPSS 数据集。同时该仓库在 GitHub 上公开，供学习与参考使用。
 
-> **论文 STGNN 最终架构 = MSTCN + GAT（v2），不使用 Transformer。**
+> **论文 STGNN 最终架构 = MSTCN + GAT（静态 Spearman 拓扑图），不使用 Transformer。**
+> **DynaTopo 新架构 = MSTCN + GAT（静态 Spearman 拓扑图 + 工况驱动动态图），详见下方。**
 > 详见下方 [模型架构](#模型架构) 与 [版本说明](#版本说明)。
 
 ## 项目结构
@@ -12,14 +13,19 @@
 ```
 RUL_Prediction/
 ├── data/                # 数据仓库（raw 原始数据 / processed 预处理数据）
-├── core_models/         # 模型零件库（MSTCN, GAT, Transformer, STGNN 拼装）
+├── core_models/         # 模型零件库
+│   ├── stgnn_static.py       # 静态图 STGNN（原论文最终架构）
+│   ├── stgnn_dynatopo.py     # 🆕 双图 STGNN（静态+工况驱动动态图）
+│   ├── topo_generator/       # 🆕 动态图生成器子包（相似度/注意力）
+│   └── topo_fusion/          # 🆕 图融合策略子包（特征融合/拓扑融合）
 ├── utils/               # 工具箱（数据处理、损失函数、评估指标）
-├── configs/             # 全局配置
+├── configs/             # 全局配置 + dynatopo 实验配置
 ├── scripts/             # 训练与评估脚本
 ├── notebooks/           # 可视化分析与图表绘制
 ├── extracted_pdf/       # 课题论文 PDF 提取内容
 ├── saved_models/        # 训练好的模型权重
 └── logs/                # 运行日志
+    └── dynatopo/        # 🆕 DynaTopo 实验日志
 ```
 
 ## 环境配置
@@ -55,10 +61,52 @@ NASA C-MAPSS 数据集（FD001 ~ FD004），存放在 `data/raw/` 下。
 
 | 版本 | 架构 | 标识 | 说明 |
 |------|------|------|------|
-| **v2（主线）** | MSTCN + GAT | `_v2` 后缀 | **论文采用的最终架构**，关闭 Transformer 分支 |
-| v1（探索） | MSTCN + GAT + Transformer | 无后缀 | 三位一体完整架构，保留作对比参考 |
+| **static（原论文）** | MSTCN + GAT（Spearman固定图） | `_static` 后缀 | 论文采用的最终架构，关闭 Transformer 分支 |
+| **dynatopo（新）** | MSTCN + GAT（静态图 + 工况驱动动态图） | `dynatopo_` 前缀 | 🆕 可切换 A×B 多种组合 |
+| v1（已废弃） | MSTCN + GAT + Transformer | — | 已删除 |
 
-- `scripts/train_basic_v2.py`、`scripts/evaluate_2_v2.py` — 单工况 v2 训练与评估
-- `scripts/ablation_study_v2.py` — v2 消融实验（MSTCN+GAT / 仅MSTCN / 仅GAT / 全关）
-- `scripts/train_transfer_v2_*.py` — v2 跨工况迁移实验（无监督UDA / 半监督 / 全局MMD对比）
-- 不含 `_v2` 的同名脚本为 v1 版本，包含 Transformer 分支
+### static 脚本（原论文复现）
+
+- `scripts/train_basic_static.py` — 静态图单工况训练
+- `scripts/ablation_static.py` — 静态图消融实验
+- `scripts/evaluate_1_static.py` — 单工况评估
+- `scripts/evaluate_2_static.py` — 跨工况评估
+- `scripts/train_transfer.py` — 统一迁移脚本（支持 none/global_mmd/lmmd_uda/lmmd_semi）
+
+### dynatopo 脚本（新实验）
+
+- `scripts/train_basic_dynatopo.py --preset A1B1` — 双图模型训练（配置驱动）
+- `scripts/ablation_dynatopo.py` — 双图消融实验（4种A×B + 消融对照组）
+- `scripts/evaluate_1_dynatopo.py` — 双图单工况评估
+- `scripts/evaluate_2_dynatopo.py` — 双图跨工况评估
+
+### 动态图生成策略 (A)
+
+| 策略 | 标识 | 说明 |
+|------|------|------|
+| A1 相似度 | `similarity` | 余弦相似度 + 工况调制 → Top-K 稀疏化 |
+| A2 注意力 | `attention` | 多头注意力 + 工况偏置 → Top-K 稀疏化 |
+
+### 图融合策略 (B)
+
+| 策略 | 标识 | 说明 |
+|------|------|------|
+| B1 特征融合 | `feature` | 静态图和动态图各自过 GAT，特征层拼接融合 |
+| B2 拓扑融合 | `topology` | 静态边和动态边合并去重，统一送入一个 GAT |
+
+### 实验预设
+
+```bash
+# 4 种 A×B 组合
+python scripts/train_basic_dynatopo.py --preset A1B1  # 相似度 × 特征融合
+python scripts/train_basic_dynatopo.py --preset A1B2  # 相似度 × 拓扑融合
+python scripts/train_basic_dynatopo.py --preset A2B1  # 注意力 × 特征融合
+python scripts/train_basic_dynatopo.py --preset A2B2  # 注意力 × 拓扑融合
+
+# 消融对照
+python scripts/train_basic_dynatopo.py --preset static_only   # 仅静态图（=原STGNN）
+python scripts/train_basic_dynatopo.py --preset dynamic_only  # 仅动态图
+
+# 查看所有预设
+python scripts/train_basic_dynatopo.py --list-presets
+```

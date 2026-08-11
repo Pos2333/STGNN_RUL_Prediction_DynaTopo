@@ -1,5 +1,5 @@
 # ============================================================
-# core_models/stgnn_full.py —— 完整 STGNN 模型拼装
+# core_models/stgnn_static.py —— 静态图 STGNN 模型拼装（原论文最终架构）
 # ============================================================
 # TODO 3: 将 MSTCN + GAT + Transformer 三位一体组装
 # TODO 6: 新增消融实验开关 use_mstcn / use_gat / use_transformer
@@ -81,14 +81,14 @@ def repeat_edge_index_for_batch(edge_index, batch_size, num_nodes=14):
     return torch.cat(edge_list, dim=1)
 
 
-class STGNN(nn.Module):
+class STGNN_Static(nn.Module):
     """
-    时空图神经网络 —— 完整模型（支持消融实验）
+    时空图神经网络（静态图版本）—— 原论文最终架构（支持消融实验）
 
-    三位一体架构:
+    架构:
       - MSTCN:  提取多尺度局部时序特征
-      - GAT:    建模传感器空间依赖关系
-      - Transformer: 捕获全局长程时序依赖
+      - GAT:    基于 Spearman 固定拓扑图建模传感器空间依赖关系
+      - Transformer: 捕获全局长程时序依赖（v2 论文版默认关闭）
 
     消融开关（TODO 6）:
       - use_mstcn:      是否使用多尺度时间卷积
@@ -121,7 +121,7 @@ class STGNN(nn.Module):
                  trans_d_model=128, trans_nhead=4, trans_num_layers=2, trans_dropout=0.2,
                  use_mstcn=True, use_gat=True, use_transformer=True,
                  fc_hidden=64):
-        super(STGNN, self).__init__()
+        super(STGNN_Static, self).__init__()
 
         if mstcn_channels is None:
             mstcn_channels = [32, 64, 128]
@@ -339,7 +339,7 @@ if __name__ == '__main__':
         print(f"🔬 {name}: use_mstcn={cfg['use_mstcn']}, "
               f"use_gat={cfg['use_gat']}, use_transformer={cfg['use_transformer']}")
 
-        model = STGNN(
+        model = STGNN_Static(
             num_sensors=14, num_op_settings=3,
             mstcn_channels=[32, 64, 128], mstcn_kernels=[3, 5, 7], mstcn_dropout=0.2,
             gat_hidden=64, gat_heads=4, gat_dropout=0.2,

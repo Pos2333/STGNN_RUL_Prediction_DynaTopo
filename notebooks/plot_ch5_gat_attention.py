@@ -25,7 +25,7 @@ from configs.config import (NUM_FEATURES, NUM_SENSORS, BATCH_SIZE, RANDOM_SEED,
     GAT_HIDDEN_DIM, GAT_HEADS, GAT_DROPOUT,
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS,
     TRANSFORMER_DROPOUT, FC_HIDDEN_DIM)
-from core_models.stgnn_full import STGNN
+from core_models.stgnn_static import STGNN_Static
 from notebooks.gat_attention_helper import extract_gat_attention_matrix
 
 np.random.seed(RANDOM_SEED); torch.manual_seed(RANDOM_SEED)
@@ -71,7 +71,7 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE,
                          shuffle=False, drop_last=False)
 
 # === 2. 加载训练好的 STGNN v2 模型 ===
-MODEL_PATH = os.path.join(PROJ_ROOT, 'saved_models', 'stgnn_v2_best_FD001.pt')
+MODEL_PATH = os.path.join(PROJ_ROOT, 'saved_models', 'stgnn_static_best_FD001.pt')
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"找不到模型: {MODEL_PATH}。请先运行 train_basic_v2.py 训练模型。")
 

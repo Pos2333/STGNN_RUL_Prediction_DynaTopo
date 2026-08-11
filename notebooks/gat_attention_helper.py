@@ -58,7 +58,7 @@ def extract_gat_attention_single(stgnn_model, x_input, edge_index, device='cuda'
     gat_in = mstcn_out.reshape(B_s * N_s, D_s)  # [B*14, 128]
 
     # 构造 batch 级 edge_index
-    from core_models.stgnn_full import repeat_edge_index_for_batch
+    from core_models.stgnn_static import repeat_edge_index_for_batch
     batched_edge = repeat_edge_index_for_batch(edge_index, B, 14).to(device)
 
     # ---- Step 4: 手动执行 GAT 第一层（带注意力权重提取） ----

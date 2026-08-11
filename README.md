@@ -4,7 +4,8 @@
 
 This repository contains the complete code implementation for the research project **"Research on a Graph Neural Network-Based Method for Remaining Useful Life Prediction of Aero-Engines"**, using the NASA C-MAPSS dataset. It is also publicly available on GitHub for study and reference.
 
-> **Final STGNN architecture in the paper = MSTCN + GAT (v2), without Transformer.**
+> **Paper STGNN final architecture = MSTCN + GAT (static Spearman topology), without Transformer.**
+> **DynaTopo new architecture = MSTCN + GAT (static Spearman topology + condition-driven dynamic graph), see below.**
 > See [Model Architecture](#model-architecture) and [Version Notes](#version-notes) below.
 
 ## Project Structure
@@ -12,14 +13,19 @@ This repository contains the complete code implementation for the research proje
 ```
 RUL_Prediction/
 ├── data/                # Data storage (raw / processed)
-├── core_models/         # Model building blocks (MSTCN, GAT, Transformer, STGNN assembly)
+├── core_models/         # Model building blocks
+│   ├── stgnn_static.py       # Static-graph STGNN (original paper architecture)
+│   ├── stgnn_dynatopo.py     # 🆕 Dual-graph STGNN (static + condition-driven dynamic)
+│   ├── topo_generator/       # 🆕 Dynamic graph generator subpackage (similarity/attention)
+│   └── topo_fusion/          # 🆕 Graph fusion strategy subpackage (feature/topology)
 ├── utils/               # Utilities (data processing, loss functions, evaluation metrics)
-├── configs/             # Global configuration
+├── configs/             # Global config + dynatopo experiment config
 ├── scripts/             # Training & evaluation scripts
 ├── notebooks/           # Visualization & charting
 ├── extracted_pdf/       # Extracted content from the research paper PDF
 ├── saved_models/        # Trained model weights
 └── logs/                # Run logs
+    └── dynatopo/        # 🆕 DynaTopo experiment logs
 ```
 
 ## Environment Setup
@@ -55,10 +61,52 @@ The final **STGNN (Spatio-Temporal Graph Neural Network)** adopted in the paper 
 
 | Version | Architecture | Identifier | Description |
 |---------|-------------|------------|-------------|
-| **v2 (main)** | MSTCN + GAT | `_v2` suffix | **Final architecture used in the paper**, Transformer branch disabled |
-| v1 (exploratory) | MSTCN + GAT + Transformer | no suffix | Full three-component architecture, kept for comparison |
+| **static (paper)** | MSTCN + GAT (Spearman fixed graph) | `_static` suffix | Final architecture in the paper, Transformer disabled |
+| **dynatopo (new)** | MSTCN + GAT (static + condition-driven dynamic) | `dynatopo_` prefix | 🆕 Switchable A×B combinations |
+| v1 (deprecated) | MSTCN + GAT + Transformer | — | Deleted |
 
-- `scripts/train_basic_v2.py`, `scripts/evaluate_2_v2.py` — Single-condition v2 training & evaluation
-- `scripts/ablation_study_v2.py` — v2 ablation study (MSTCN+GAT / MSTCN-only / GAT-only / all-off)
-- `scripts/train_transfer_v2_*.py` — v2 cross-condition transfer experiments (unsupervised UDA / semi-supervised / global MMD comparison)
-- Scripts without `_v2` suffix are v1 versions that include the Transformer branch
+### Static Scripts (paper reproduction)
+
+- `scripts/train_basic_static.py` — Static-graph single-condition training
+- `scripts/ablation_static.py` — Static-graph ablation study
+- `scripts/evaluate_1_static.py` — Single-condition evaluation
+- `scripts/evaluate_2_static.py` — Cross-condition evaluation
+- `scripts/train_transfer.py` — Unified transfer script (supports none/global_mmd/lmmd_uda/lmmd_semi)
+
+### DynaTopo Scripts (new experiments)
+
+- `scripts/train_basic_dynatopo.py --preset A1B1` — Dual-graph training (config-driven)
+- `scripts/ablation_dynatopo.py` — Dual-graph ablation study (4 A×B + ablation controls)
+- `scripts/evaluate_1_dynatopo.py` — Dual-graph single-condition evaluation
+- `scripts/evaluate_2_dynatopo.py` — Dual-graph cross-condition evaluation
+
+### Dynamic Graph Generation Strategies (A)
+
+| Strategy | ID | Description |
+|----------|------|-------------|
+| A1 Similarity | `similarity` | Cosine similarity + condition modulation → Top-K sparsification |
+| A2 Attention | `attention` | Multi-head attention + condition bias → Top-K sparsification |
+
+### Graph Fusion Strategies (B)
+
+| Strategy | ID | Description |
+|----------|------|-------------|
+| B1 Feature Fusion | `feature` | Static and dynamic graphs each through independent GATs, feature-level concatenation |
+| B2 Topology Fusion | `topology` | Merge and deduplicate static & dynamic edges, unified single GAT |
+
+### Experiment Presets
+
+```bash
+# 4 A×B combinations
+python scripts/train_basic_dynatopo.py --preset A1B1  # Similarity × Feature Fusion
+python scripts/train_basic_dynatopo.py --preset A1B2  # Similarity × Topology Fusion
+python scripts/train_basic_dynatopo.py --preset A2B1  # Attention × Feature Fusion
+python scripts/train_basic_dynatopo.py --preset A2B2  # Attention × Topology Fusion
+
+# Ablation controls
+python scripts/train_basic_dynatopo.py --preset static_only   # Static only (= original STGNN)
+python scripts/train_basic_dynatopo.py --preset dynamic_only  # Dynamic only
+
+# List all presets
+python scripts/train_basic_dynatopo.py --list-presets
+```

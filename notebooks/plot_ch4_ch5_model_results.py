@@ -25,7 +25,7 @@ from configs.config import (NUM_FEATURES,NUM_SENSORS,BATCH_SIZE,RANDOM_SEED,
     MSTCN_NUM_CHANNELS,MSTCN_KERNEL_SIZES,MSTCN_DROPOUT,
     GAT_HIDDEN_DIM,GAT_HEADS,GAT_DROPOUT,
     TRANSFORMER_D_MODEL,TRANSFORMER_NHEAD,TRANSFORMER_NUM_LAYERS,TRANSFORMER_DROPOUT,FC_HIDDEN_DIM)
-from core_models.stgnn_full import STGNN
+from core_models.stgnn_static import STGNN_Static
 from core_models.base_models import BasicLSTM, GRUModel, TCNModel, CNN_LSTM_Model
 from utils.metrics import compute_rmse, compute_nasa_score
 
@@ -101,7 +101,7 @@ print(f"采样: 源域={len(X_s)}, 目标域={len(X_t)}")
 # 三个模型特征
 print("加载无迁移基线模型...")
 m_no=build_stgnn_v2()
-m_no.load_state_dict(torch.load(os.path.join(MODEL_DIR,'stgnn_v2_best_FD001.pt'),map_location=DEVICE,weights_only=False)['model_state_dict'])
+m_no.load_state_dict(torch.load(os.path.join(MODEL_DIR,'stgnn_static_best_FD001.pt'),map_location=DEVICE,weights_only=False)['model_state_dict'])
 _,fs_no=predict_stgnn(m_no,X_s,edge_fd001,return_features=True)
 _,ft_no=predict_stgnn(m_no,X_t,edge_fd002,return_features=True)
 
@@ -113,7 +113,7 @@ _,ft_mmd=predict_stgnn(m_mmd,X_t,edge_fd002,return_features=True)
 
 print("加载 LMMD 迁移模型...")
 m_lmmd=build_stgnn_v2()
-m_lmmd.load_state_dict(torch.load(os.path.join(MODEL_DIR,'transfer_v2_best_FD002.pt'),map_location=DEVICE,weights_only=False)['model_state_dict'])
+m_lmmd.load_state_dict(torch.load(os.path.join(MODEL_DIR,'transfer_static_best_FD002.pt'),map_location=DEVICE,weights_only=False)['model_state_dict'])
 _,fs_lmmd=predict_stgnn(m_lmmd,X_s,edge_fd001,return_features=True)
 _,ft_lmmd=predict_stgnn(m_lmmd,X_t,edge_fd002,return_features=True)
 

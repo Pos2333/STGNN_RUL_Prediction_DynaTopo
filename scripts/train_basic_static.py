@@ -38,7 +38,7 @@ from configs.config import (
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
     FC_HIDDEN_DIM
 )
-from core_models.stgnn_full import STGNN, repeat_edge_index_for_batch
+from core_models.stgnn_static import STGNN_Static, repeat_edge_index_for_batch
 from utils.loss_functions import CombinedLoss
 from utils.metrics import evaluate_metrics
 
@@ -278,7 +278,7 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
             best_loss = val_loss
             patience_counter = 0
 
-            best_model_path = 'saved_models/stgnn_v2_best_FD001.pt'
+            best_model_path = 'saved_models/stgnn_static_best_FD001.pt'
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
@@ -310,10 +310,10 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
 def save_training_log(train_losses, val_losses, subset='FD001'):
     """将训练过程的损失记录保存为 JSON 文件"""
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_path = f'logs/stgnn_v2_{subset}_{timestamp}.json'
+    log_path = f'logs/stgnn_static_{subset}_{timestamp}.json'
 
     log_data = {
-        'model': 'STGNN_v2',
+        'model': 'STGNN_Static',
         'subset': subset,
         'train_losses': train_losses,
         'val_losses': val_losses,
@@ -348,7 +348,7 @@ if __name__ == '__main__':
     )
 
     # ---- 2. 创建模型 ----
-    model = STGNN(
+    model = STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS,
         mstcn_kernels=MSTCN_KERNEL_SIZES,
@@ -390,7 +390,7 @@ if __name__ == '__main__':
     print(f"  加载最佳模型...")
     print(f"{'='*60}")
 
-    best_checkpoint = torch.load('saved_models/stgnn_v2_best_FD001.pt')
+    best_checkpoint = torch.load('saved_models/stgnn_static_best_FD001.pt')
     model.load_state_dict(best_checkpoint['model_state_dict'])
     print(f"  已加载最佳模型 (Epoch {best_checkpoint['epoch']+1}, "
           f"Val Loss: {best_checkpoint['best_loss']:.4f})")
@@ -403,4 +403,4 @@ if __name__ == '__main__':
     evaluate_metrics(y_pred, y_true, print_result=True)
 
     print(f"\n🎉 TODO 3 完成！STGNN v2 (MSTCN + GAT) 主线模型训练完毕。")
-    print(f"  最佳模型保存在: saved_models/stgnn_v2_best_FD001.pt")
+    print(f"  最佳模型保存在: saved_models/stgnn_static_best_FD001.pt")
