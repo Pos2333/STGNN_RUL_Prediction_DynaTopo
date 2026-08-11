@@ -31,7 +31,7 @@ from configs.config import (
     FC_HIDDEN_DIM
 )
 from core_models.base_models import BasicLSTM
-from core_models.stgnn_full import STGNN
+from core_models.stgnn_static import STGNN_Static
 from utils.metrics import compute_rmse, compute_nasa_score, evaluate_metrics
 
 # ============================================================
@@ -147,7 +147,7 @@ def evaluate_lstm(test_loader, device, model_path='saved_models/lstm_best_FD001.
 # 3. 加载并评估 STGNN 模型
 # ============================================================
 def evaluate_stgnn(test_loader, edge_index, device,
-                   model_path='saved_models/stgnn_v2_best_FD001.pt'):
+                   model_path='saved_models/stgnn_static_best_FD001.pt'):
     """
     加载 STGNN v2 最佳模型并在测试集上预测
 
@@ -158,7 +158,7 @@ def evaluate_stgnn(test_loader, edge_index, device,
     print(f"{'='*60}")
 
     # 实例化模型
-    model = STGNN(
+    model = STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS,
         mstcn_kernels=MSTCN_KERNEL_SIZES,

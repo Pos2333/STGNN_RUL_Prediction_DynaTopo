@@ -31,7 +31,7 @@ from configs.config import (
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
     FC_HIDDEN_DIM
 )
-from core_models.stgnn_full import STGNN
+from core_models.stgnn_static import STGNN_Static
 from utils.metrics import compute_rmse, compute_nasa_score
 
 torch.manual_seed(RANDOM_SEED)
@@ -75,7 +75,7 @@ def load_test_data(subset, processed_dir='data/processed'):
 # ============================================================
 def build_model(device):
     """创建与训练时结构一致的 STGNN 模型"""
-    model = STGNN(
+    model = STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS,
         mstcn_kernels=MSTCN_KERNEL_SIZES,
@@ -165,7 +165,7 @@ def run_evaluation(target_subsets=None):
 
         # ---- A. 无迁移：FD001 预训练模型直接测试 ----
         model_no_transfer = build_model(device)
-        pretrain_path = 'saved_models/stgnn_v2_best_FD001.pt'
+        pretrain_path = 'saved_models/stgnn_static_best_FD001.pt'
         if os.path.exists(pretrain_path):
             ckpt = torch.load(pretrain_path, map_location=device)
             model_no_transfer.load_state_dict(ckpt['model_state_dict'])
@@ -178,7 +178,7 @@ def run_evaluation(target_subsets=None):
             rmse_a, score_a = None, None
 
         # ---- B. UDA 无监督：FD001→target 迁移模型（仅 LMMD，不用目标域标签） ----
-        uda_path = f'saved_models/transfer_v2_uda_best_{target}.pt'
+        uda_path = f'saved_models/transfer_uda_best_{target}.pt'
         model_uda = build_model(device)
 
         if os.path.exists(uda_path):
@@ -189,11 +189,11 @@ def run_evaluation(target_subsets=None):
                 f"UDA 无监督 (FD001→{target}, 仅LMMD)"
             )
         else:
-            print(f"  ⚠️  未找到 UDA 模型 {uda_path}，请先运行 train_transfer_v2_uda.py")
+            print(f"  ⚠️  未找到 UDA 模型 {uda_path}，请先运行 train_transfer.py --adapt_mode lmmd_uda")
             rmse_uda, score_uda = None, None
 
         # ---- C. 半监督：FD001→target 迁移模型（源域+目标域监督 + LMMD） ----
-        transfer_path = f'saved_models/transfer_v2_best_{target}.pt'
+        transfer_path = f'saved_models/transfer_static_best_{target}.pt'
         model_transfer = build_model(device)
 
         if os.path.exists(transfer_path):

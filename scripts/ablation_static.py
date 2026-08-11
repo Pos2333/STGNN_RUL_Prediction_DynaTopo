@@ -46,7 +46,7 @@ from configs.config import (
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
     FC_HIDDEN_DIM
 )
-from core_models.stgnn_full import STGNN
+from core_models.stgnn_static import STGNN_Static
 from utils.loss_functions import CombinedLoss
 from utils.metrics import evaluate_metrics
 
@@ -76,7 +76,7 @@ ABLATION_CONFIGS = {
 # 预训练模型映射：这部分变体直接复用已有模型，无需从零训练
 # （各脚本共用 RANDOM_SEED=42 + val_ratio=0.2，训练/验证集划分完全一致）
 PRETRAINED_PATHS = {
-    "MSTCN + GAT (新基线)": "saved_models/stgnn_v2_best_FD001.pt",
+    "MSTCN + GAT (新基线)": "saved_models/stgnn_static_best_FD001.pt",
     "完整 STGNN (原始)":    "saved_models/stgnn_best_FD001.pt",
 }
 
