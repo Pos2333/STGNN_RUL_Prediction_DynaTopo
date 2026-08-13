@@ -43,6 +43,11 @@ def nasa_score_loss(y_pred, y_true):
     # 误差 = 预测值 - 真实值
     d = y_pred - y_true
 
+    # 数值稳定：clamp d，防止 exp 溢出
+    # d<0 时（过早预测）RUL 上限 125，exp(125/13)≈1.5e4 安全
+    # d>0 时（过晚预测）d 无上界，若不 clamp，exp(d/10) 会在 d≈880 时溢出 float32
+    d = torch.clamp(d, min=-125.0, max=125.0)
+
     # 分段计算非对称评分
     # torch.where(条件, 真分支, 假分支)
     scores = torch.where(
