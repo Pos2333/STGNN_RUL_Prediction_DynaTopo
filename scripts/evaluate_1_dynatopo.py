@@ -10,6 +10,7 @@
 import os
 import sys
 import json
+import glob
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
@@ -20,11 +21,15 @@ from configs.config import (
     WINDOW_SIZE, NUM_FEATURES, BATCH_SIZE, RANDOM_SEED
 )
 from configs.dynatopo_config import get_experiment_config, EXPERIMENT_MATRIX
+from core_models.stgnn_static import STGNN_Static
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.metrics import compute_rmse, compute_nasa_score
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性推理（保证同模型可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def load_test_data(subset='FD001', processed_dir='data/processed'):
@@ -61,22 +66,75 @@ def evaluate_model(model, X_test, edge_index, device):
     return np.concatenate(all_preds)
 
 
+def find_latest_log(pattern, dir='logs/dynatopo', fallback_dir='logs'):
+    """查找最新的训练日志文件"""
+    for d in [dir, fallback_dir]:
+        files = sorted(glob.glob(os.path.join(d, pattern)))
+        if files:
+            return files[-1]
+    return None
+
+
+def read_val_metrics_from_log(log_path):
+    """从训练日志中读取验证集指标"""
+    with open(log_path) as f:
+        data = json.load(f)
+    return {
+        'val_loss': data.get('best_val_loss'),
+        'val_rmse': data.get('best_val_rmse'),
+        'val_nasa_score': data.get('best_val_nasa_score'),
+        'epochs': data.get('num_epochs'),
+    }
+
+
 def main():
-    print("=" * 60)
-    print("  📊 STGNN_DynaTopo 单工况评估 (FD001)")
-    print("=" * 60)
+    print("=" * 70)
+    print("  📊 STGNN 全面评估 —— FD001 测试集 + 验证集指标")
+    print("=" * 70)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"  设备: {device}")
+    print(f"  设备: {device}\n")
 
     X_test, y_test, ruls, edge_index = load_test_data('FD001')
 
     results = {}
 
+    # ================================================================
+    # 1. 静态基线
+    # ================================================================
+    model_path = 'saved_models/stgnn_static_best_FD001.pt'
+    log_path = find_latest_log('stgnn_static_FD001_*.json')
+    val_info = read_val_metrics_from_log(log_path) if log_path else {}
+
+    if os.path.exists(model_path):
+        print(f"{'─'*50}")
+        print(f"  🔍 静态基线 (STGNN_Static)")
+
+        model = STGNN_Static(use_transformer=False).to(device)
+        ckpt = torch.load(model_path, map_location=device)
+        model.load_state_dict(ckpt['model_state_dict'])
+        preds = evaluate_model(model, X_test, edge_index, device)
+        params = sum(p.numel() for p in model.parameters())
+
+        results['static'] = {
+            'test_rmse': float(compute_rmse(preds, y_test.numpy())),
+            'test_nasa': float(compute_nasa_score(preds, ruls)),
+            'params': params,
+            **val_info,
+        }
+        print(f"    test RMSE={results['static']['test_rmse']:.2f}, "
+              f"test NASA={results['static']['test_nasa']:.1f}")
+
+    # ================================================================
+    # 2. 四组双图模型
+    # ================================================================
     for preset, cfg in EXPERIMENT_MATRIX.items():
         model_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
+        log_path = find_latest_log(f'{preset}_FD001_*.json')
+        val_info = read_val_metrics_from_log(log_path) if log_path else {}
+
         if not os.path.exists(model_path):
-            print(f"\n  ⚠️  跳过 {preset}: 模型不存在 ({model_path})")
+            print(f"\n  ⚠️  跳过 {preset}: 模型不存在")
             continue
 
         print(f"\n{'─'*50}")
@@ -85,29 +143,45 @@ def main():
         model = STGNN_DynaTopo(cfg, num_sensors=14, num_op_settings=3).to(device)
         ckpt = torch.load(model_path, map_location=device)
         model.load_state_dict(ckpt['model_state_dict'])
-
         preds = evaluate_model(model, X_test, edge_index, device)
-        rmse = compute_rmse(preds, y_test.numpy())
-        score = compute_nasa_score(preds, ruls)
         params = sum(p.numel() for p in model.parameters())
 
-        print(f"    RMSE: {rmse:.2f}, NASA Score: {score:.1f}, 参数: {params:,}")
-        results[preset] = {'rmse': float(rmse), 'score': float(score), 'params': params}
+        results[preset] = {
+            'test_rmse': float(compute_rmse(preds, y_test.numpy())),
+            'test_nasa': float(compute_nasa_score(preds, ruls)),
+            'params': params,
+            **val_info,
+        }
+        print(f"    test RMSE={results[preset]['test_rmse']:.2f}, "
+              f"test NASA={results[preset]['test_nasa']:.1f}")
 
-    # 打印汇总表格
-    print(f"\n{'='*60}")
-    print("  📋 单工况评估汇总")
-    print(f"{'='*60}")
-    print(f"  {'模型':<20} {'RMSE':>8} {'NASA Score':>12} {'参数':>10}")
-    print(f"  {'─'*50}")
-    for preset, r in results.items():
-        print(f"  {preset:<20} {r['rmse']:>8.2f} {r['score']:>12.1f} {r['params']:>10,}")
+    # ================================================================
+    # 3. 综合对比表
+    # ================================================================
+    print(f"\n{'='*80}")
+    print("  📋 综合对比：验证集指标 + 测试集指标")
+    print(f"{'='*80}")
 
-    # 保存结果
+    hdr = (f"  {'模型':<10} {'val loss':>9} {'val RMSE':>9} {'val NASA':>10} "
+           f"{'test RMSE':>9} {'test NASA':>10} {'参数':>9}")
+    print(hdr)
+    print(f"  {'─'*72}")
+
+    for name, r in results.items():
+        vloss = r.get('val_loss', '—')
+        vrmse = r.get('val_rmse', '—')
+        vnasa = r.get('val_nasa_score', '—')
+        vloss_str = f"{vloss:.2f}" if isinstance(vloss, (int, float)) else str(vloss)
+        vrmse_str = f"{vrmse:.2f}" if isinstance(vrmse, (int, float)) else str(vrmse)
+        vnasa_str = f"{vnasa:.1f}" if isinstance(vnasa, (int, float)) else str(vnasa)
+        print(f"  {name:<10} {vloss_str:>9} {vrmse_str:>9} {vnasa_str:>10} "
+              f"{r['test_rmse']:>9.2f} {r['test_nasa']:>10.1f} {r['params']:>9,}")
+
+    # 保存
     os.makedirs('logs/dynatopo', exist_ok=True)
-    with open('logs/dynatopo/eval_single_FD001.json', 'w', encoding='utf-8') as f:
+    with open('logs/dynatopo/eval_full_FD001.json', 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"\n📝 结果已保存至 logs/dynatopo/eval_single_FD001.json")
+    print(f"\n📝 结果已保存至 logs/dynatopo/eval_full_FD001.json")
 
 
 if __name__ == '__main__':

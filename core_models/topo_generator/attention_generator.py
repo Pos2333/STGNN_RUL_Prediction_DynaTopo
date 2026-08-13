@@ -6,13 +6,16 @@
 #   1. 将传感器特征通过 Q/K 投影，计算多头注意力分数
 #   2. 多头平均得到传感器间关联强度矩阵
 #   3. 用工况编码学习偏置项（不同工况改变基线关联强度）
-#   4. Top-K 稀疏化，保留最强的 K 条边
+#   4. softmax 归一化（标准注意力实现，消除分数尺度漂移）
+#   5. Top-K 稀疏化，保留最强的 K 条边
 #
 # 为什么选多头注意力：
 #   - 比相似度更灵活：不同"头"关注不同语义维度的关联
 #   - 与 GAT 中的注意力不同：此处的注意力用于"决定是否连边"，
 #     而非"在已有边上分配权重"
 #   - 工况偏置提供了结构化的先验调节
+#   - softmax 归一化保证分数有界 [0,1]，跨样本尺度一致，
+#     使 Top-K 选边稳定可复现
 # ============================================================
 
 import torch
@@ -28,7 +31,9 @@ class AttentionGenerator(BaseDynamicGraphGenerator):
     流程:
       sensor_feat [B,14,128] → Q/K 投影 → 多头注意力分数 [B,14,14,heads]
                                              ↓ 多头平均 → [B,14,14]
-      op_feat [B,W,3] → Conv1d编码 → 工况偏置 ──→ 加到分数上
+      op_feat [B,W,3] → Conv1d编码 → 工况偏置 ──→ 加到 logits 上
+                                             ↓
+                                       softmax 归一化 → [B,14,14]
                                              ↓
                                        Top-K 稀疏化 → [B,14,14] 0/1
 
@@ -95,12 +100,18 @@ class AttentionGenerator(BaseDynamicGraphGenerator):
         # 缩放（防止内积过大导致 softmax 饱和）
         attn = attn / (self.head_dim ** 0.5)
 
-        # ---- Step 3: 工况偏置 ----
+        # ---- Step 3: 工况偏置 + softmax 归一化 ----
         op_enc = self.op_encoder(op_feat.permute(0, 2, 1))  # [B, 16, 1]
         op_enc = op_enc.squeeze(-1)                          # [B, 16]
         bias = self.op_to_bias(op_enc).view(B, N, N)        # [B, N, N]
 
-        # 注意力分数 + 工况偏置
-        scores = attn + bias
+        # logits = 注意力分数 + 工况偏置
+        logits = attn + bias
+
+        # softmax 归一化（标准 Transformer 注意力实现）：
+        #   - 每个源节点 i 对所有目标节点 j 的分数归一化为概率分布
+        #   - 分数有界 [0,1]，跨样本尺度一致，Top-K 选边稳定
+        #   - 保序性：softmax 单调递增，不改变边的相对排序
+        scores = F.softmax(logits, dim=-1)
 
         return scores

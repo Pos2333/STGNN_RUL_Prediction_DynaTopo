@@ -63,8 +63,8 @@ BATCH_SIZE = 256
 # 初始学习率
 LEARNING_RATE = 0.001
 
-# 训练轮数
-NUM_EPOCHS = 100
+# 训练轮数（DynaTopo 双图模型搜索空间增大，需更多轮次充分收敛）
+NUM_EPOCHS = 200
 
 # 早停耐心值（验证 loss 不再下降的容忍轮数）
 EARLY_STOP_PATIENCE = 20

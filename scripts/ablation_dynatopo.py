@@ -34,6 +34,9 @@ from utils.metrics import compute_rmse, compute_nasa_score
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性训练（保证同种子可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def load_data(subset='FD001', processed_dir='data/processed', val_ratio=0.2):
