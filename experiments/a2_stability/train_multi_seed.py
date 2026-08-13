@@ -88,6 +88,8 @@ def train_one_epoch(model, loader, loss_fn, optimizer, edge_index, device):
         pred = model(X_batch, edge_index.to(device))
         loss = loss_fn(pred, y_batch)
         loss.backward()
+        # 梯度裁剪，防止梯度爆炸（与 train_basic_static.py 保持一致）
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         total_loss += loss.item() * X_batch.size(0)
     return total_loss / len(loader.dataset)
