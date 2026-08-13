@@ -155,6 +155,14 @@ def main():
         cfg = get_experiment_config(args.preset)
         model = STGNN_DynaTopo(cfg, num_sensors=14, num_op_settings=3).to(device)
 
+    # 防死亡ReLU：将 fc 最后一个 Linear 层的 bias 初始化为正数。
+    # 若 bias 初始为负，最后一层 ReLU 输入恒为负 → 输出恒为 0，
+    # 梯度无法回传（死亡ReLU），训练完全停滞（val_rmse 锁死在 RMS(y)≈90）。
+    for layer in model.fc:
+        if isinstance(layer, torch.nn.Linear):
+            last_linear = layer
+    last_linear.bias.data.fill_(1.0)
+
     loss_fn = CombinedLoss(MSE_WEIGHT, NASA_SCORE_WEIGHT)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
