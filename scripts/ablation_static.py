@@ -55,6 +55,9 @@ from utils.metrics import evaluate_metrics
 # ============================================================
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性训练（保证同种子可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 # 设备选择
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

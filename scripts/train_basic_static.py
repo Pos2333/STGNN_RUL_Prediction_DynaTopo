@@ -40,13 +40,16 @@ from configs.config import (
 )
 from core_models.stgnn_static import STGNN_Static, repeat_edge_index_for_batch
 from utils.loss_functions import CombinedLoss
-from utils.metrics import evaluate_metrics
+from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
 
 # ============================================================
 # 固定随机种子，保证可复现
 # ============================================================
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性训练（保证同种子可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 # ============================================================
@@ -122,7 +125,7 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
 # ============================================================
 def save_checkpoint(model, optimizer, epoch, best_loss,
                     train_losses, val_losses,
-                    filepath='saved_models/stgnn_v2_checkpoint.pt'):
+                    filepath='saved_models/stgnn_static_checkpoint.pt'):
     """保存训练状态，支持断点续训"""
     torch.save({
         'epoch': epoch,
@@ -138,7 +141,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss,
 # ============================================================
 # 3. 加载 checkpoint（恢复训练）
 # ============================================================
-def load_checkpoint(model, optimizer, filepath='saved_models/stgnn_v2_checkpoint.pt'):
+def load_checkpoint(model, optimizer, filepath='saved_models/stgnn_static_checkpoint.pt'):
     """从 checkpoint 恢复训练状态"""
     if os.path.exists(filepath):
         checkpoint = torch.load(filepath)
@@ -222,7 +225,7 @@ def validate(model, dataloader, loss_fn, edge_index, device):
 # ============================================================
 def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, device,
           num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
-          resume=False, checkpoint_path='saved_models/stgnn_v2_checkpoint.pt'):
+          resume=False, checkpoint_path='saved_models/stgnn_static_checkpoint.pt'):
     """STGNN (v2: 无 Transformer) 主训练循环"""
     # ---- 尝试恢复训练 ----
     if resume:
@@ -235,10 +238,11 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
         train_losses = []
         val_losses = []
 
+    val_rmses, val_nasa_scores = [], []
     patience_counter = 0
 
     print(f"\n{'='*60}")
-    print(f"  🚀 开始训练 STGNN 模型")
+    print(f"  🚀 开始训练 STGNN_Static 模型")
     print(f"  设备: {device}, 最大轮数: {num_epochs}, 早停: {patience}")
     print(f"{'='*60}")
 
@@ -258,15 +262,18 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
         # ---- 记录 ----
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        val_rmse = compute_rmse(y_pred, y_true)
+        val_nasa = compute_nasa_score(y_pred, y_true)
+        val_rmses.append(float(val_rmse))
+        val_nasa_scores.append(float(val_nasa))
 
         epoch_time = time.time() - epoch_start
 
         # 每 5 轮打印详细信息
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            rmse, score = evaluate_metrics(y_pred, y_true, print_result=False)
             print(f"  Epoch {epoch+1:3d}/{num_epochs} | "
                   f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
-                  f"RMSE: {rmse:.2f} | Score: {score:.1f} | "
+                  f"vRMSE: {val_rmse:.2f} | vNASA: {val_nasa:.1f} | "
                   f"耗时: {epoch_time:.1f}s")
         else:
             print(f"  Epoch {epoch+1:3d}/{num_epochs} | "
@@ -276,6 +283,8 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
         # ---- 保存最佳模型 ----
         if val_loss < best_loss:
             best_loss = val_loss
+            best_rmse = val_rmse
+            best_nasa = val_nasa
             patience_counter = 0
 
             best_model_path = 'saved_models/stgnn_static_best_FD001.pt'
@@ -283,8 +292,10 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
                 'epoch': epoch,
+                'best_val_rmse': float(best_rmse),
+                'best_val_nasa_score': float(best_nasa),
             }, best_model_path)
-            print(f"  ⭐ 新的最佳模型！Val Loss: {best_loss:.4f} → {best_model_path}")
+            print(f"  ⭐ 新的最佳模型！vRMSE={best_rmse:.2f} vNASA={best_nasa:.1f} → {best_model_path}")
         else:
             patience_counter += 1
 
@@ -301,23 +312,28 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
     print(f"  ✅ 训练完成！最佳验证损失: {best_loss:.4f}")
     print(f"{'='*60}")
 
-    return model, train_losses, val_losses
+    return model, train_losses, val_losses, val_rmses, val_nasa_scores
 
 
 # ============================================================
 # 7. 保存训练日志
 # ============================================================
-def save_training_log(train_losses, val_losses, subset='FD001'):
+def save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001'):
     """将训练过程的损失记录保存为 JSON 文件"""
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = f'logs/stgnn_static_{subset}_{timestamp}.json'
+    best_idx = val_losses.index(min(val_losses)) if val_losses else 0
 
     log_data = {
         'model': 'STGNN_Static',
         'subset': subset,
         'train_losses': train_losses,
         'val_losses': val_losses,
+        'val_rmses': val_rmses,
+        'val_nasa_scores': val_nasa_scores,
         'best_val_loss': min(val_losses) if val_losses else None,
+        'best_val_rmse': val_rmses[best_idx] if val_rmses else None,
+        'best_val_nasa_score': val_nasa_scores[best_idx] if val_nasa_scores else None,
         'num_epochs': len(train_losses),
     }
 
@@ -375,7 +391,7 @@ if __name__ == '__main__':
     print(f"  优化器: Adam (lr={LEARNING_RATE})")
 
     # ---- 4. 训练 ----
-    model, train_losses, val_losses = train(
+    model, train_losses, val_losses, val_rmses, val_nasa_scores = train(
         model, train_loader, val_loader, loss_fn, optimizer, edge_index, device,
         num_epochs=NUM_EPOCHS,
         patience=EARLY_STOP_PATIENCE,
@@ -383,7 +399,7 @@ if __name__ == '__main__':
     )
 
     # ---- 5. 保存训练日志 ----
-    save_training_log(train_losses, val_losses, subset='FD001')
+    save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001')
 
     # ---- 6. 加载最佳模型 ----
     print(f"\n{'='*60}")
@@ -402,5 +418,5 @@ if __name__ == '__main__':
     print(f"\n📊 验证集最终评估:")
     evaluate_metrics(y_pred, y_true, print_result=True)
 
-    print(f"\n🎉 TODO 3 完成！STGNN v2 (MSTCN + GAT) 主线模型训练完毕。")
+    print(f"\n完成！STGNN v2 (MSTCN + GAT) 主线模型训练完毕。")
     print(f"  最佳模型保存在: saved_models/stgnn_static_best_FD001.pt")

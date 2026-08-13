@@ -35,10 +35,13 @@ from configs.dynatopo_config import (
 )
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.loss_functions import CombinedLoss
-from utils.metrics import evaluate_metrics
+from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性训练（保证同种子可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 # ============================================================
@@ -143,6 +146,7 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index,
     else:
         start_epoch, best_loss = 0, float('inf')
         train_losses, val_losses = [], []
+    val_rmses, val_nasa_scores = [], []
     patience_counter = 0
 
     print(f"\n{'='*60}")
@@ -156,24 +160,31 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index,
         val_loss, y_pred, y_true = validate(model, val_loader, loss_fn, edge_index, device)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        # 记录独立的 val RMSE 和 val NASA Score（不受 CombinedLoss 噪声影响）
+        val_rmse = compute_rmse(y_pred, y_true)
+        val_nasa = compute_nasa_score(y_pred, y_true)
+        val_rmses.append(float(val_rmse))
+        val_nasa_scores.append(float(val_nasa))
         epoch_time = time.time() - epoch_start
 
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            rmse, score = evaluate_metrics(y_pred, y_true, print_result=False)
             print(f"  Epoch {epoch+1:3d}/{num_epochs} | "
                   f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | "
-                  f"RMSE: {rmse:.2f} | Score: {score:.1f} | {epoch_time:.1f}s")
+                  f"vRMSE: {val_rmse:.2f} | vNASA: {val_nasa:.1f} | {epoch_time:.1f}s")
         else:
             print(f"  Epoch {epoch+1:3d}/{num_epochs} | "
                   f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | {epoch_time:.1f}s")
 
         if val_loss < best_loss:
             best_loss = val_loss
+            best_rmse = val_rmse
+            best_nasa = val_nasa
             patience_counter = 0
             best_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
             torch.save({'model_state_dict': model.state_dict(),
-                        'best_loss': best_loss, 'epoch': epoch, 'preset': preset}, best_path)
-            print(f"  ⭐ 新最佳模型！→ {best_path}")
+                        'best_loss': best_loss, 'epoch': epoch, 'preset': preset,
+                        'best_val_rmse': float(best_rmse), 'best_val_nasa_score': float(best_nasa)}, best_path)
+            print(f"  ⭐ 新最佳模型！vRMSE={best_rmse:.2f} vNASA={best_nasa:.1f} → {best_path}")
         else:
             patience_counter += 1
 
@@ -185,20 +196,25 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index,
             break
 
     print(f"\n  ✅ 训练完成！最佳 Val Loss: {best_loss:.4f}")
-    return model, train_losses, val_losses
+    return model, train_losses, val_losses, val_rmses, val_nasa_scores
 
 
-def save_log(train_losses, val_losses, preset, subset='FD001'):
+def save_log(train_losses, val_losses, val_rmses, val_nasa_scores, preset, subset='FD001'):
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = f'logs/dynatopo/{preset}_{subset}_{timestamp}.json'
     os.makedirs('logs/dynatopo', exist_ok=True)
+    best_idx = val_losses.index(min(val_losses)) if val_losses else 0
     with open(log_path, 'w', encoding='utf-8') as f:
         json.dump({
             'model': f'STGNN_DynaTopo_{preset}',
             'subset': subset,
             'train_losses': train_losses,
             'val_losses': val_losses,
+            'val_rmses': val_rmses,
+            'val_nasa_scores': val_nasa_scores,
             'best_val_loss': min(val_losses) if val_losses else None,
+            'best_val_rmse': val_rmses[best_idx] if val_rmses else None,
+            'best_val_nasa_score': val_nasa_scores[best_idx] if val_nasa_scores else None,
             'num_epochs': len(train_losses),
         }, f, ensure_ascii=False, indent=2)
     print(f"\n📝 日志已保存 → {log_path}")
@@ -246,14 +262,14 @@ if __name__ == '__main__':
 
     checkpoint_path = f'saved_models/dynatopo_{args.preset}_checkpoint.pt'
 
-    model, train_losses, val_losses = train(
+    model, train_losses, val_losses, val_rmses, val_nasa_scores = train(
         model, train_loader, val_loader, loss_fn, optimizer, edge_index,
         device, args.preset,
         num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
         resume=args.resume, checkpoint_path=checkpoint_path
     )
 
-    save_log(train_losses, val_losses, args.preset)
+    save_log(train_losses, val_losses, val_rmses, val_nasa_scores, args.preset)
 
     # 加载最佳模型
     best_path = f'saved_models/dynatopo_{args.preset}_best_FD001.pt'

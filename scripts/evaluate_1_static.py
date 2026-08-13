@@ -39,6 +39,9 @@ from utils.metrics import compute_rmse, compute_nasa_score, evaluate_metrics
 # ============================================================
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+# GPU 确定性推理（保证同模型可复现）
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 # ============================================================
