@@ -34,5 +34,9 @@ Thumbs.db
 # 羊的PDF
 *.pdf
 extracted_pdf/
+
+# 多seed实验的模型
+experiments/models/
+
 # conda environment (do not commit)
 .conda/

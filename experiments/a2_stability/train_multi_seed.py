@@ -20,7 +20,6 @@ import argparse
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 # 项目根目录（experiments/a2_stability 的上两级）
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,6 +33,7 @@ from core_models.stgnn_static import STGNN_Static
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.loss_functions import CombinedLoss
 from utils.metrics import compute_rmse, compute_nasa_score
+from utils.data_processor import split_by_unit
 
 # 实验区配置
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,12 +46,18 @@ from config_seeds import NUM_EPOCHS, EARLY_STOP_PATIENCE, MODEL_DIR, LOG_DIR
 def load_data(subset='FD001', val_ratio=0.2):
     data = np.load(os.path.join(ROOT, f'data/processed/{subset}_train.npz'))
     X, y = data['X'], data['y']
+    if 'unit' not in data.files:
+        raise RuntimeError(
+            f"❌ 数据缺少 unit 字段: {subset}_train.npz\n"
+            f"   请重新运行数据预处理（python utils/data_processor.py）。"
+        )
+    unit_ids = data['unit']
     graph = torch.load(os.path.join(ROOT, f'data/processed/{subset}_train_graph.pt'))
     edge_index = graph['edge_index']
 
-    # 固定用 RANDOM_SEED(42) 拆分，保证所有 seed 的验证集一致
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_ratio, random_state=RANDOM_SEED
+    # 固定用 RANDOM_SEED(42) 按发动机分组拆分，保证所有 seed 的验证集一致且无泄漏
+    X_train, X_val, y_train, y_val = split_by_unit(
+        X, y, unit_ids, val_ratio=val_ratio, random_state=RANDOM_SEED
     )
 
     X_train = torch.tensor(X_train, dtype=torch.float32)
@@ -155,13 +161,9 @@ def main():
         cfg = get_experiment_config(args.preset)
         model = STGNN_DynaTopo(cfg, num_sensors=14, num_op_settings=3).to(device)
 
-    # 防死亡ReLU：将 fc 最后一个 Linear 层的 bias 初始化为正数。
-    # 若 bias 初始为负，最后一层 ReLU 输入恒为负 → 输出恒为 0，
-    # 梯度无法回传（死亡ReLU），训练完全停滞（val_rmse 锁死在 RMS(y)≈90）。
-    for layer in model.fc:
-        if isinstance(layer, torch.nn.Linear):
-            last_linear = layer
-    last_linear.bias.data.fill_(1.0)
+    # 注：死亡 ReLU 修复（最后一层 Linear 的 bias 正初始化）已在
+    #     STGNN_Static / STGNN_DynaTopo 的 __init__ 内统一完成，
+    #     此处不再重复，保证 experiments 与主线逻辑一致。
 
     loss_fn = CombinedLoss(MSE_WEIGHT, NASA_SCORE_WEIGHT)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)

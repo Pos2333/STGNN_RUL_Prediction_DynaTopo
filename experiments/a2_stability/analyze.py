@@ -22,7 +22,8 @@ def load_all_results():
     """加载所有 (preset, seed) 的日志"""
     results = {preset: {} for preset in PRESETS}
     log_dir = os.path.join(ROOT, LOG_DIR)
-    for f in glob.glob(os.path.join(log_dir, '*.json')):
+    # 只匹配 *_seed*.json，跳过 summary.json 等汇总文件
+    for f in glob.glob(os.path.join(log_dir, '*_seed*.json')):
         with open(f) as fp:
             data = json.load(fp)
         preset = data['preset']

@@ -19,7 +19,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,6 +30,7 @@ from configs.dynatopo_config import get_experiment_config
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.loss_functions import CombinedLoss
 from utils.metrics import compute_rmse, compute_nasa_score
+from utils.data_processor import split_by_unit
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
@@ -44,11 +44,17 @@ def load_data(subset='FD001', processed_dir='data/processed', val_ratio=0.2):
     graph_path = os.path.join(processed_dir, f'{subset}_train_graph.pt')
     train_data = np.load(train_path)
     X, y = train_data['X'], train_data['y']
+    if 'unit' not in train_data.files:
+        raise RuntimeError(
+            f"❌ 数据缺少 unit 字段: {train_path}\n"
+            f"   请重新运行数据预处理（python utils/data_processor.py）。"
+        )
+    unit_ids = train_data['unit']
     graph = torch.load(graph_path)
     edge_index = graph['edge_index']
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_ratio, random_state=RANDOM_SEED
+    X_train, X_val, y_train, y_val = split_by_unit(
+        X, y, unit_ids, val_ratio=val_ratio, random_state=RANDOM_SEED
     )
 
     X_train = torch.tensor(X_train, dtype=torch.float32)
@@ -79,6 +85,7 @@ def train_and_eval(model, train_loader, val_loader, edge_index, device,
             optimizer.zero_grad()
             loss = loss_fn(model(X_b, edge_index.to(device)), y_b)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             train_loss += loss.item() * X_b.size(0)
         train_loss /= len(train_loader.dataset)
