@@ -153,9 +153,12 @@ class CMAPSSDataProcessor:
         返回：
             X: 窗口特征 [n_samples, WINDOW_SIZE, NUM_FEATURES]
             y: RUL 标签 [n_samples]
+            unit_ids: [n_samples] 每个窗口样本所属的发动机编号
+                      （用于按发动机分组拆分训练/验证集，防止数据泄漏）
         """
         X_list = []
         y_list = []
+        unit_ids_list = []
 
         # 获取所有发动机编号
         unique_units = np.unique(unit_cycle[:, 0])
@@ -181,13 +184,15 @@ class CMAPSSDataProcessor:
 
                 X_list.append(window_features)
                 y_list.append(rul_label)
+                unit_ids_list.append(unit_id)
 
         X = np.stack(X_list, axis=0)  # [n_samples, WINDOW_SIZE, NUM_FEATURES]
         y = np.array(y_list)          # [n_samples]
+        unit_ids = np.array(unit_ids_list, dtype=np.float32)  # [n_samples]
 
-        print(f"  ✅ 滑动窗口构造完成：{len(X)} 个样本")
+        print(f"  ✅ 滑动窗口构造完成：{len(X)} 个样本（来自 {len(unique_units)} 台发动机）")
         print(f"     窗口形状: {X.shape}, 标签形状: {y.shape}")
-        return X, y
+        return X, y, unit_ids
 
     # ============================================================
     # 第5步：分段线性 RUL 标签（上限截断）
@@ -273,6 +278,7 @@ class CMAPSSDataProcessor:
         返回：
             X: 窗口特征 [n_samples, WINDOW_SIZE, NUM_FEATURES]
             y: RUL 标签 [n_samples]
+            unit_ids: 每个窗口样本所属的发动机编号 [n_samples]
             edge_index: 图边索引 [2, num_edges]
             edge_weight: 边权重 [num_edges]
         """
@@ -290,7 +296,7 @@ class CMAPSSDataProcessor:
         features = self.normalize(features, fit=True)
 
         # Step 4: 滑动窗口
-        X, y = self.build_sliding_windows(features, unit_cycle)
+        X, y, unit_ids = self.build_sliding_windows(features, unit_cycle)
 
         # Step 5: RUL 标签截断
         y = self.clip_rul_labels(y)
@@ -301,12 +307,14 @@ class CMAPSSDataProcessor:
         # 保存到 processed 目录
         if save:
             save_path = os.path.join(self.processed_dir, f'{subset}_train')
-            np.savez(save_path, X=X, y=y)
+            # ⚠️ unit 字段必须保存：按发动机（unit）分组拆分训练/验证集时使用，
+            #    防止同一台发动机的窗口样本被同时分进训练集和验证集（数据泄漏）
+            np.savez(save_path, X=X, y=y, unit=unit_ids)
             torch.save({'edge_index': edge_index, 'edge_weight': edge_weight},
                        f'{save_path}_graph.pt')
             print(f"  💾 已保存到 {save_path}.npz 和 {save_path}_graph.pt")
 
-        return X, y, edge_index, edge_weight
+        return X, y, unit_ids, edge_index, edge_weight
 
     # ============================================================
     # 完整测试数据预处理流程（⭐防泄漏关键）
@@ -382,6 +390,56 @@ class CMAPSSDataProcessor:
 
 
 # ============================================================
+# 便捷函数：按发动机（unit）分组拆分训练/验证集
+# ============================================================
+def split_by_unit(X, y, unit_ids, val_ratio=0.2, random_state=42):
+    """
+    按发动机（unit）分组拆分训练集/验证集，防止数据泄漏。
+
+    ⚠️ 铁律：同一台发动机的所有窗口样本必须进同一边（训练或验证），
+      绝不能跨两边。样本级随机拆分（train_test_split）会把同一台
+      发动机的样本同时分进训练集和验证集，导致验证集泄漏
+      （val_rmse 虚假偏低、与 test_rmse 差 3 倍）。
+
+    使用 sklearn 的 GroupShuffleSplit：
+      - 以 unit id 为分组依据，按"发动机台数"比例拆分（如 0.2 → 20% 台发动机进验证）
+      - random_state 固定，保证可复现
+
+    参数:
+        X:          窗口特征 [n_samples, WINDOW_SIZE, NUM_FEATURES]
+        y:          RUL 标签 [n_samples]
+        unit_ids:   每个窗口样本所属的发动机编号 [n_samples]
+        val_ratio:  验证集比例（按发动机台数），默认 0.2
+        random_state: 随机种子，默认 42（与 configs.config.RANDOM_SEED 一致）
+
+    返回:
+        X_train, X_val, y_train, y_val
+    """
+    from sklearn.model_selection import GroupShuffleSplit
+
+    # unit_ids 可能为 float32（来自 unit_cycle），转成整数保证分组语义正确
+    groups = np.asarray(unit_ids).astype(np.int64)
+
+    gss = GroupShuffleSplit(n_splits=1, test_size=val_ratio, random_state=random_state)
+    train_idx, val_idx = next(gss.split(X, y, groups=groups))
+
+    X_train, X_val = X[train_idx], X[val_idx]
+    y_train, y_val = y[train_idx], y[val_idx]
+
+    # 打印分组统计，便于确认没有跨组泄漏
+    train_units = np.unique(groups[train_idx])
+    val_units = np.unique(groups[val_idx])
+    overlap = np.intersect1d(train_units, val_units)
+    print(f"  🧩 按发动机分组拆分: 训练 {len(X_train)} 样本/{len(train_units)} 台, "
+          f"验证 {len(X_val)} 样本/{len(val_units)} 台")
+    if len(overlap) > 0:
+        raise RuntimeError(f"❌ 数据泄漏！{len(overlap)} 台发动机同时出现在训练和验证集: {overlap[:10]}")
+    print(f"  ✅ 训练/验证发动机无重叠")
+
+    return X_train, X_val, y_train, y_val
+
+
+# ============================================================
 # 便捷函数：一键预处理所有数据集
 # ============================================================
 def preprocess_all_datasets(data_dir='data/raw', processed_dir='data/processed'):
@@ -400,9 +458,9 @@ def preprocess_all_datasets(data_dir='data/raw', processed_dir='data/processed')
         print(f"{'#'*60}")
 
         # 处理训练集
-        X_train, y_train, edge_index, edge_weight = processor.process_train(subset)
+        X_train, y_train, unit_ids, edge_index, edge_weight = processor.process_train(subset)
         results[f'{subset}_train'] = {
-            'X': X_train, 'y': y_train,
+            'X': X_train, 'y': y_train, 'unit': unit_ids,
             'edge_index': edge_index, 'edge_weight': edge_weight
         }
 
@@ -427,14 +485,14 @@ if __name__ == '__main__':
     processor = CMAPSSDataProcessor()
 
     # 处理训练集
-    X_train, y_train, edge_idx, edge_w = processor.process_train('FD001')
+    X_train, y_train, unit_ids, edge_idx, edge_w = processor.process_train('FD001')
 
     # 处理测试集（自动使用训练集的 scaler）
     X_test, y_test, true_rul = processor.process_test('FD001')
 
     print(f"\n{'='*60}")
     print(f"  ✅ 自测通过！")
-    print(f"  训练集: X={X_train.shape}, y={y_train.shape}")
+    print(f"  训练集: X={X_train.shape}, y={y_train.shape}, unit={unit_ids.shape}")
     print(f"  测试集: X={X_test.shape}, y={y_test.shape}")
     print(f"  图结构: {edge_idx.shape[1]} 条边")
     print(f"{'='*60}")

@@ -24,7 +24,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 # 添加项目根目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -41,6 +40,7 @@ from configs.config import (
 from core_models.stgnn_static import STGNN_Static, repeat_edge_index_for_batch
 from utils.loss_functions import CombinedLoss
 from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
+from utils.data_processor import split_by_unit
 
 # ============================================================
 # 固定随机种子，保证可复现
@@ -86,6 +86,13 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
     train_data = np.load(train_path)
     X = train_data['X']  # [n_samples, WINDOW_SIZE, NUM_FEATURES]
     y = train_data['y']  # [n_samples]
+    if 'unit' not in train_data.files:
+        raise RuntimeError(
+            f"❌ 数据缺少 unit 字段: {train_path}\n"
+            f"   请重新运行数据预处理（python utils/data_processor.py）"
+            f"生成带发动机编号的新 npz。"
+        )
+    unit_ids = train_data['unit']
 
     graph = torch.load(graph_path)
     edge_index = graph['edge_index']  # [2, num_edges]
@@ -95,8 +102,9 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
     print(f"  图边数: {edge_index.shape[1]}")
 
     # ---- 拆分训练集 / 验证集 ----
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_ratio, random_state=RANDOM_SEED, shuffle=True
+    # ⚠️ 按发动机（unit）分组拆分，防止同一台发动机的窗口样本跨训练/验证集（数据泄漏）
+    X_train, X_val, y_train, y_val = split_by_unit(
+        X, y, unit_ids, val_ratio=val_ratio, random_state=RANDOM_SEED
     )
     print(f"  训练样本: {len(X_train)}, 验证样本: {len(X_val)}")
 

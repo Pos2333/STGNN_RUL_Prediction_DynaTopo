@@ -222,6 +222,14 @@ class STGNN_Static(nn.Module):
             nn.ReLU()  # RUL >= 0
         )
 
+        # ⚠️ 防死亡 ReLU：最后一层 Linear 的 bias 正初始化。
+        # 若 bias 初始为负，最后一层 ReLU（保证 RUL >= 0）输入恒为负 → 输出恒为 0，
+        # 梯度无法回传（死亡 ReLU），训练完全停滞（val_rmse 锁死在 RMS(y)）。
+        for _layer in self.fc:
+            if isinstance(_layer, nn.Linear):
+                last_linear = _layer
+        last_linear.bias.data.fill_(1.0)
+
     def forward(self, x, edge_index, return_feat=False):
         """
         前向传播（支持消融实验开关）

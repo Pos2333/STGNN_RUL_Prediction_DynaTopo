@@ -1,10 +1,13 @@
 # ============================================================
-# scripts/evaluate_2_dynatopo.py —— 双图模型跨工况评估
+# scripts/evaluate_2_dynatopo.py —— 跨工况评估（static + dynatopo）
 # ============================================================
-# 评估 dynatopo 迁移模型在 FD002~FD004 上的表现。
+# 对每个模型（static / A1B1 / A1B2 等），在每个目标域（FD002~FD004）上评估：
+#   1. 无迁移:     FD001 预训练模型直接测试目标域
+#   2. 半监督LMMD: FD001→目标域迁移模型（源域+目标域监督 + LMMD）
 #
 # 用法:
-#   python scripts/evaluate_2_dynatopo.py --preset A1B1
+#   python scripts/evaluate_2_dynatopo.py --preset A1B1       # 单模型
+#   python scripts/evaluate_2_dynatopo.py --preset all        # 全部模型
 # ============================================================
 
 import os
@@ -17,8 +20,15 @@ from torch.utils.data import TensorDataset, DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from configs.config import BATCH_SIZE, RANDOM_SEED
+from configs.config import (
+    BATCH_SIZE, RANDOM_SEED,
+    MSTCN_NUM_CHANNELS, MSTCN_KERNEL_SIZES, MSTCN_DROPOUT,
+    GAT_HIDDEN_DIM, GAT_HEADS, GAT_DROPOUT,
+    TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
+    FC_HIDDEN_DIM
+)
 from configs.dynatopo_config import get_experiment_config
+from core_models.stgnn_static import STGNN_Static
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.metrics import compute_rmse, compute_nasa_score
 
@@ -41,11 +51,30 @@ def load_target_test(target, processed_dir='data/processed'):
     y_test = test_data['y']
     ruls = test_data.get('rul_true', y_test)
 
-    graph = torch.load(graph_path, map_location='cpu')
+    graph = torch.load(graph_path, map_location='cpu', weights_only=False)
     edge_index = graph['edge_index']
 
     print(f"  📂 {target} 测试数据: {len(X_test)} 样本")
     return X_test, y_test, ruls, edge_index
+
+
+def build_model(preset, device):
+    """根据预设构建模型（static 或 dynatopo）"""
+    if preset == 'static':
+        return STGNN_Static(
+            num_sensors=14, num_op_settings=3,
+            mstcn_channels=MSTCN_NUM_CHANNELS, mstcn_kernels=MSTCN_KERNEL_SIZES,
+            mstcn_dropout=MSTCN_DROPOUT,
+            gat_hidden=GAT_HIDDEN_DIM, gat_heads=GAT_HEADS, gat_dropout=GAT_DROPOUT,
+            trans_d_model=TRANSFORMER_D_MODEL, trans_nhead=TRANSFORMER_NHEAD,
+            trans_num_layers=TRANSFORMER_NUM_LAYERS, trans_dropout=TRANSFORMER_DROPOUT,
+            use_transformer=False,
+            fc_hidden=FC_HIDDEN_DIM
+        ).to(device)
+    else:
+        cfg = get_experiment_config(preset)
+        return STGNN_DynaTopo(cfg, num_sensors=14, num_op_settings=3,
+                              fc_hidden=FC_HIDDEN_DIM).to(device)
 
 
 @torch.no_grad()
@@ -65,44 +94,96 @@ def evaluate(model, X_test, edge_index, device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--preset', type=str, default='A1B1')
+    parser.add_argument('--preset', type=str, default='A1B1',
+                        help='模型预设: static / A1B1 / A1B2 / A2B1 / A2B2 / all')
     args = parser.parse_args()
 
-    print("=" * 60)
-    print(f"  📊 STGNN_DynaTopo 跨工况评估 [{args.preset}]")
-    print("=" * 60)
+    if args.preset == 'all':
+        presets = ['static', 'A1B1', 'A1B2']
+    else:
+        presets = [args.preset]
+
+    print("=" * 70)
+    print(f"  📊 跨工况评估（无迁移 vs 半监督LMMD）—— {presets}")
+    print("=" * 70)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"  设备: {device}")
+    print(f"  设备: {device}\n")
 
-    cfg = get_experiment_config(args.preset)
     targets = ['FD002', 'FD003', 'FD004']
-    results = {}
+    all_results = {}
 
-    for target in targets:
-        transfer_path = f'saved_models/dynatopo_{args.preset}_transfer_{target}.pt'
-        if not os.path.exists(transfer_path):
-            print(f"\n  ⚠️  跳过 {target}: 迁移模型不存在 ({transfer_path})")
-            continue
+    for preset in presets:
+        prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
+        # FD001 预训练模型路径
+        if preset == 'static':
+            pretrain_path = 'saved_models/stgnn_static_best_FD001.pt'
+        else:
+            pretrain_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
 
-        X_test, y_test, ruls, edge_index = load_target_test(target)
+        print(f"\n{'#'*70}")
+        print(f"#  模型: {preset}")
+        print(f"{'#'*70}")
 
-        model = STGNN_DynaTopo(cfg, num_sensors=14, num_op_settings=3).to(device)
-        ckpt = torch.load(transfer_path, map_location=device)
-        model.load_state_dict(ckpt['model_state_dict'])
+        for target in targets:
+            X_test, y_test, ruls, edge_index = load_target_test(target)
 
-        preds = evaluate(model, X_test, edge_index, device)
-        rmse = compute_rmse(preds, y_test)
-        score = compute_nasa_score(preds, ruls)
+            # ---- 无迁移：FD001 预训练模型直接测目标域 ----
+            no_transfer_rmse = no_transfer_score = None
+            if os.path.exists(pretrain_path):
+                model = build_model(preset, device)
+                ckpt = torch.load(pretrain_path, map_location=device, weights_only=False)
+                model.load_state_dict(ckpt['model_state_dict'])
+                preds = evaluate(model, X_test, edge_index, device)
+                no_transfer_rmse = float(compute_rmse(preds, y_test))
+                no_transfer_score = float(compute_nasa_score(preds, ruls))
+                print(f"\n  [{preset}] 无迁移 {target}: "
+                      f"RMSE={no_transfer_rmse:.2f}, NASA={no_transfer_score:.1f}")
+            else:
+                print(f"\n  [{preset}] 无迁移 {target}: ⚠️ 缺少预训练模型 {pretrain_path}")
 
-        print(f"\n  {target}: RMSE={rmse:.2f}, NASA Score={score:.1f}")
-        results[target] = {'rmse': float(rmse), 'score': float(score)}
+            # ---- 半监督 LMMD：迁移模型 ----
+            transfer_path = f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+            semi_rmse = semi_score = None
+            if os.path.exists(transfer_path):
+                model = build_model(preset, device)
+                ckpt = torch.load(transfer_path, map_location=device, weights_only=False)
+                model.load_state_dict(ckpt['model_state_dict'])
+                preds = evaluate(model, X_test, edge_index, device)
+                semi_rmse = float(compute_rmse(preds, y_test))
+                semi_score = float(compute_nasa_score(preds, ruls))
+                print(f"  [{preset}] 半监督LMMD {target}: "
+                      f"RMSE={semi_rmse:.2f}, NASA={semi_score:.1f}")
+            else:
+                print(f"  [{preset}] 半监督LMMD {target}: ⚠️ 缺少迁移模型 {transfer_path}")
 
-    print(f"\n{'='*60}")
-    print(f"  📋 跨工况评估汇总 [{args.preset}]")
-    print(f"{'='*60}")
-    for t, r in results.items():
-        print(f"  {t}: RMSE={r['rmse']:.2f}, NASA Score={r['score']:.1f}")
+            all_results[f'{preset}_{target}'] = {
+                'preset': preset, 'target': target,
+                'no_transfer_rmse': no_transfer_rmse,
+                'no_transfer_score': no_transfer_score,
+                'semi_rmse': semi_rmse,
+                'semi_score': semi_score,
+            }
+
+    # ---- 汇总表格 ----
+    print(f"\n{'='*80}")
+    print(f"  📋 跨工况评估汇总")
+    print(f"{'='*80}")
+    print(f"  {'模型':<10} {'目标':<8} {'无迁移RMSE':>10} {'无迁移NASA':>12} "
+          f"{'半监督RMSE':>10} {'半监督NASA':>12}")
+    print(f"  {'-'*70}")
+    for k, r in all_results.items():
+        def fmt(v, nd=2):
+            return f"{v:.{nd}f}" if v is not None else "—"
+        print(f"  {r['preset']:<10} {r['target']:<8} "
+              f"{fmt(r['no_transfer_rmse']):>10} {fmt(r['no_transfer_score'],1):>12} "
+              f"{fmt(r['semi_rmse']):>10} {fmt(r['semi_score'],1):>12}")
+
+    # 保存
+    os.makedirs('logs/dynatopo', exist_ok=True)
+    with open('logs/dynatopo/eval_cross_condition.json', 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, ensure_ascii=False, indent=2)
+    print(f"\n📝 结果已保存至 logs/dynatopo/eval_cross_condition.json")
 
 
 if __name__ == '__main__':

@@ -20,7 +20,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -36,6 +35,7 @@ from configs.dynatopo_config import (
 from core_models.stgnn_dynatopo import STGNN_DynaTopo
 from utils.loss_functions import CombinedLoss
 from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
+from utils.data_processor import split_by_unit
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
@@ -59,6 +59,13 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed', val_rati
     train_data = np.load(train_path)
     X = train_data['X']
     y = train_data['y']
+    if 'unit' not in train_data.files:
+        raise RuntimeError(
+            f"❌ 数据缺少 unit 字段: {train_path}\n"
+            f"   请重新运行数据预处理（python utils/data_processor.py）"
+            f"生成带发动机编号的新 npz。"
+        )
+    unit_ids = train_data['unit']
     graph = torch.load(graph_path)
     edge_index = graph['edge_index']
 
@@ -66,8 +73,9 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed', val_rati
     print(f"  总样本数: {len(X)}, 特征形状: {X.shape[1:]}")
     print(f"  图边数: {edge_index.shape[1]}")
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_ratio, random_state=RANDOM_SEED, shuffle=True
+    # ⚠️ 按发动机（unit）分组拆分，防止同一台发动机的窗口样本跨训练/验证集（数据泄漏）
+    X_train, X_val, y_train, y_val = split_by_unit(
+        X, y, unit_ids, val_ratio=val_ratio, random_state=RANDOM_SEED
     )
     print(f"  训练样本: {len(X_train)}, 验证样本: {len(X_val)}")
 
@@ -96,6 +104,8 @@ def train_one_epoch(model, loader, loss_fn, optimizer, edge_index, device):
         pred = model(X_batch, edge_index.to(device))
         loss = loss_fn(pred, y_batch)
         loss.backward()
+        # 梯度裁剪，防止梯度爆炸（与 train_basic_static.py / train_transfer.py 保持一致）
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         total_loss += loss.item() * X_batch.size(0)
     return total_loss / len(loader.dataset)

@@ -32,7 +32,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 # 添加项目根目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,6 +48,7 @@ from configs.config import (
 from core_models.stgnn_static import STGNN_Static
 from utils.loss_functions import CombinedLoss
 from utils.metrics import evaluate_metrics
+from utils.data_processor import split_by_unit
 
 # ============================================================
 # 固定随机种子，保证公平对比
@@ -107,6 +107,12 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
     train_data = np.load(train_path)
     X = train_data['X']
     y = train_data['y']
+    if 'unit' not in train_data.files:
+        raise RuntimeError(
+            f"❌ 数据缺少 unit 字段: {train_path}\n"
+            f"   请重新运行数据预处理（python utils/data_processor.py）。"
+        )
+    unit_ids = train_data['unit']
 
     graph = torch.load(graph_path, weights_only=False)
     edge_index = graph['edge_index']
@@ -115,9 +121,9 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
     print(f"  样本数: {len(X)}, 特征形状: {X.shape[1:]}")
     print(f"  图边数: {edge_index.shape[1]}")
 
-    # ---- 切分训练/验证集 ----
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_ratio, random_state=RANDOM_SEED, shuffle=True
+    # ---- 切分训练/验证集（按发动机分组，防泄漏）----
+    X_train, X_val, y_train, y_val = split_by_unit(
+        X, y, unit_ids, val_ratio=val_ratio, random_state=RANDOM_SEED
     )
     print(f"  训练: {len(X_train)}, 验证: {len(X_val)}")
 
