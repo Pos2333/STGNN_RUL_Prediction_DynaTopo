@@ -1,6 +1,12 @@
-# 实验隔离区 (experiments/)
+# 多 seed 稳定性实验 (experiments/a2_stability)
 
-本目录用于存放**与主线（seed=42）隔离的探索性实验**，不进入论文最终结论。
+本目录用于多随机种子（multi-seed）稳定性实验：在修复数据泄漏（按发动机分组拆分）、
+bias 正初始化等代码问题后，通过多个随机种子重复训练，报告各模型
+（static / A1B1 ~ A2B2）验证集与测试集的 mean ± std，为任务 4 的模型选择
+提供统计学证据，并可直接用于论文。
+
+> ⚠️ 注意：`experiments/logs/` 与 `experiments/models/` 均被 `.gitignore` 忽略，
+> 不会同步到 GitHub。云端（AutoDL）pull 后为干净状态，需重新运行训练并保留输出。
 
 ## 目录结构
 
@@ -18,7 +24,8 @@ experiments/
 ## 使用方式
 
 ```bash
-# 方式一：一键跑完所有组合（4 预设 × 3 seed = 12 次训练）
+# 方式一：一键跑完所有组合（5 预设 × 5 seed = 25 次训练）
+#         支持断点续跑：已存在日志的组合自动跳过（云端 SSH 断线后重跑可续上）
 python experiments/a2_stability/run_all.py
 
 # 方式二：手动单次训练
@@ -29,9 +36,9 @@ python experiments/a2_stability/analyze.py
 ```
 
 ## 实验目的
-
-1. 修正 `attention_generator.py` 的 softmax 归一化后，A2 是否公平
-2. 多 seed 评估 A1/A2 的指标离散程度（mean ± std）
+多 seed（5 个随机种子）评估 static / A1B1 ~ A2B2 的指标离散程度（mean ± std）
+2. 判断各模型在验证集上的差异是否显著、稳定（用于任务 4 的模型选择）
+3. 结果以 mean ± std 形式输出，可直接用于论文（mean ± std）
 3. 判断 A1 与 A2 的性能差异是否显著、稳定
 
 ## 清理

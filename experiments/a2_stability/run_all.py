@@ -16,7 +16,7 @@ import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config_seeds import SEEDS, PRESETS
+from config_seeds import SEEDS, PRESETS, LOG_DIR
 
 TRAIN_SCRIPT = os.path.join(ROOT, 'experiments', 'a2_stability', 'train_multi_seed.py')
 
@@ -28,8 +28,15 @@ def main():
     print("=" * 60)
 
     count = 0
+    skipped = 0
     for preset in PRESETS:
         for seed in SEEDS:
+            log_path = os.path.join(ROOT, LOG_DIR, f'{preset}_seed{seed}.json')
+            # 断点续跑：已有日志则跳过（云端 SSH 断线后重跑可自动续上）
+            if os.path.exists(log_path):
+                print(f"  ⏭️  跳过（已有日志）: preset={preset}, seed={seed}")
+                skipped += 1
+                continue
             count += 1
             print(f"\n{'─'*60}")
             print(f"  [{count}/{total}] preset={preset}, seed={seed}")
@@ -44,7 +51,7 @@ def main():
                 continue
 
     print(f"\n{'='*60}")
-    print(f"  ✅ 全部完成！共运行 {count}/{total} 次训练")
+    print(f"  ✅ 全部完成！本次运行 {count} 次，跳过已有 {skipped} 次（共 {total} 次）")
     print(f"  运行分析脚本: python experiments/a2_stability/analyze.py")
     print(f"{'='*60}")
 
