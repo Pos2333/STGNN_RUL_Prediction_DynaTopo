@@ -95,15 +95,20 @@ def plot_box(summary):
     results = load_all_results()
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    for ax, key, title in [(axes[0], 'test_rmse', 'Test RMSE (越小越好)'),
-                           (axes[1], 'test_nasa_score', 'Test NASA Score (越小越好)')]:
+    for ax, key, title in [(axes[0], 'test_rmse', 'Test RMSE (lower is better)'),
+                           (axes[1], 'test_nasa_score', 'Test NASA Score (lower is better)')]:
         data = [[d[key] for d in results[p].values()] for p in PRESETS]
-        ax.boxplot(data, labels=PRESETS, showmeans=True)
+        # matplotlib >= 3.9 弃用 labels（改名 tick_labels）；做版本兼容，云端 matplotlib 版本未知
+        try:
+            ax.boxplot(data, tick_labels=PRESETS, showmeans=True)
+        except TypeError:
+            ax.boxplot(data, labels=PRESETS, showmeans=True)
         ax.set_title(title, fontsize=13, fontweight='bold')
         ax.set_ylabel(key)
         ax.grid(axis='y', alpha=0.3)
 
-    fig.suptitle('多 seed 稳定性对比：A1 vs A2（修正 softmax 后）', fontsize=15, fontweight='bold')
+    fig.suptitle('Multi-seed stability: A1 vs A2 (after softmax fix)',
+                 fontsize=15, fontweight='bold')
     plt.tight_layout()
     out = os.path.join(ROOT, LOG_DIR, 'stability_boxplot.png')
     plt.savefig(out, dpi=150, bbox_inches='tight')
