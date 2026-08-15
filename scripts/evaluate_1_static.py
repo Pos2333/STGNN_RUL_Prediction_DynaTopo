@@ -1,15 +1,17 @@
 # ============================================================
-# scripts/evaluate_1_v2.py —— 单工况预测性能对比实验（v2：无 Transformer）
+# scripts/evaluate_1_static.py —— 单工况预测性能对比实验
 # ============================================================
-# TODO 4: 在 FD001 测试集上公平对比 LSTM 与 STGNN (v2: MSTCN + GAT) 的预测性能
-# 基于消融实验结果，STGNN 采用无 Transformer 变体
+# TODO 4: 在 FD001 测试集上公平对比五种模型的预测性能:
+#   LSTM / STGNN (MSTCN + GAT) / GRU / TCN / CNN+LSTM
+# STGNN 采用基于消融实验结论的无 Transformer 变体
 #
 # 对比指标:
 #   - RMSE（均方根误差，越低越好）
 #   - NASA Score（C-MAPSS 官方非对称评分，越低越好）
+#   - 参数量
 #
 # 用法:
-#   python scripts/evaluate_1.py
+#   python scripts/evaluate_1_static.py
 # ============================================================
 
 import os
@@ -30,7 +32,7 @@ from configs.config import (
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
     FC_HIDDEN_DIM
 )
-from core_models.base_models import BasicLSTM
+from core_models.base_models import BasicLSTM, GRUModel, TCNModel, CNN_LSTM_Model
 from core_models.stgnn_static import STGNN_Static
 from utils.metrics import compute_rmse, compute_nasa_score, evaluate_metrics
 
@@ -91,77 +93,53 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
 
 
 # ============================================================
-# 2. 加载并评估 LSTM 模型
+# 2. 各模型构建函数（超参数与对应训练脚本完全一致，保证公平对比）
 # ============================================================
-def evaluate_lstm(test_loader, device, model_path='saved_models/lstm_best_FD001.pt'):
-    """
-    加载 LSTM 最佳模型并在测试集上预测
-
-    返回:
-        rmse, score, y_pred_all, y_true_all, num_params
-    """
-    print(f"\n{'='*60}")
-    print(f"  🔍 评估 BasicLSTM")
-    print(f"{'='*60}")
-
-    # 实例化模型
-    model = BasicLSTM(
+def build_lstm(device):
+    """BasicLSTM —— 与 train_basic_lstm.py 一致"""
+    return BasicLSTM(
         input_dim=NUM_FEATURES,
         hidden_dim=128,
         num_layers=3,
         dropout=0.3
     ).to(device)
 
-    # 加载权重
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"找不到 LSTM 模型: {model_path}")
-    checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    print(f"  已加载权重 (Epoch {checkpoint['epoch']+1}, "
-          f"Val Loss: {checkpoint['best_loss']:.4f})")
 
-    num_params = sum(p.numel() for p in model.parameters())
-
-    # 预测
-    model.eval()
-    y_pred_all = []
-    y_true_all = []
-
-    with torch.no_grad():
-        for X_batch, y_batch in test_loader:
-            X_batch = X_batch.to(device)
-            y_pred = model(X_batch)
-            y_pred_all.append(y_pred.cpu().numpy())
-            y_true_all.append(y_batch.numpy())
-
-    y_pred_all = np.concatenate(y_pred_all, axis=0)
-    y_true_all = np.concatenate(y_true_all, axis=0)
-
-    rmse = compute_rmse(y_pred_all, y_true_all)
-    score = compute_nasa_score(y_pred_all, y_true_all)
-
-    print(f"  📊 RMSE: {rmse:.2f}")
-    print(f"  📊 NASA Score: {score:.2f}")
-
-    return rmse, score, y_pred_all, y_true_all, num_params
+def build_gru(device):
+    """GRUModel —— 与 train_basic_gru.py 一致（超参数与 LSTM 相同）"""
+    return GRUModel(
+        input_dim=NUM_FEATURES,
+        hidden_dim=128,
+        num_layers=3,
+        dropout=0.3
+    ).to(device)
 
 
-# ============================================================
-# 3. 加载并评估 STGNN 模型
-# ============================================================
-def evaluate_stgnn(test_loader, edge_index, device,
-                   model_path='saved_models/stgnn_static_best_FD001.pt'):
-    """
-    加载 STGNN v2 最佳模型并在测试集上预测
+def build_tcn(device):
+    """TCNModel —— 与 train_basic_tcn.py 一致"""
+    return TCNModel(
+        input_dim=NUM_FEATURES,
+        num_channels=64,
+        kernel_size=3,
+        num_layers=4,
+        dropout=0.3
+    ).to(device)
 
-    注意: STGNN 推理时需要传入 edge_index，且要按 batch 扩展
-    """
-    print(f"\n{'='*60}")
-    print(f"  🔍 评估 STGNN v2 (MSTCN + GAT, 无 Transformer)")
-    print(f"{'='*60}")
 
-    # 实例化模型
-    model = STGNN_Static(
+def build_cnn_lstm(device):
+    """CNN_LSTM_Model —— 与 train_basic_cnn_lstm.py 一致"""
+    return CNN_LSTM_Model(
+        input_dim=NUM_FEATURES,
+        cnn_channels=64,
+        lstm_hidden=64,
+        lstm_layers=2,
+        dropout=0.3
+    ).to(device)
+
+
+def build_stgnn(device):
+    """STGNN_Static（MSTCN + GAT，无 Transformer）—— 与 train_basic_static.py 一致"""
+    return STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS,
         mstcn_kernels=MSTCN_KERNEL_SIZES,
@@ -177,15 +155,40 @@ def evaluate_stgnn(test_loader, edge_index, device,
         fc_hidden=FC_HIDDEN_DIM
     ).to(device)
 
+
+# ============================================================
+# 3. 通用模型评估函数（所有模型共用一套推理流程）
+# ============================================================
+def evaluate_model(test_loader, device, model, model_name, model_path,
+                   edge_index=None):
+    """
+    加载指定模型权重并在测试集上预测，统一计算指标
+
+    参数:
+        test_loader: 测试 DataLoader
+        device:      设备
+        model:       已实例化并放到 device 的模型
+        model_name:  模型显示名称（用于日志输出）
+        model_path:  权重文件路径
+        edge_index:  图边索引（仅 STGNN 需要，其余模型传 None）
+
+    返回:
+        rmse, score, y_pred_all, y_true_all, num_params
+    """
+    print(f"\n{'='*60}")
+    print(f"  🔍 评估 {model_name}")
+    print(f"{'='*60}")
+
     # 加载权重
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"找不到 STGNN 模型: {model_path}")
+        raise FileNotFoundError(f"找不到 {model_name} 模型: {model_path}")
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"  已加载权重 (Epoch {checkpoint['epoch']+1}, "
           f"Val Loss: {checkpoint['best_loss']:.4f})")
 
     num_params = sum(p.numel() for p in model.parameters())
+    print(f"  参数量: {num_params:,}")
 
     # 预测
     model.eval()
@@ -195,11 +198,11 @@ def evaluate_stgnn(test_loader, edge_index, device,
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
             X_batch = X_batch.to(device)
-            # 注意: STGNN.forward() 内部会自动调用 repeat_edge_index_for_batch
-            # 所以这里只需传入原始 edge_index（14 节点的图结构）
-            edge_index_device = edge_index.to(device)
-
-            y_pred = model(X_batch, edge_index_device)
+            if edge_index is not None:
+                # STGNN 推理时需要传入 edge_index（forward 内部自动按 batch 扩展）
+                y_pred = model(X_batch, edge_index.to(device))
+            else:
+                y_pred = model(X_batch)
             y_pred_all.append(y_pred.cpu().numpy())
             y_true_all.append(y_batch.numpy())
 
@@ -218,43 +221,59 @@ def evaluate_stgnn(test_loader, edge_index, device,
 # ============================================================
 # 4. 结果汇总与输出
 # ============================================================
-def print_comparison(lstm_results, stgnn_results):
+def print_comparison(results_list, baseline_name='LSTM', subset='FD001'):
     """
-    打印 LSTM vs STGNN 的对比表格
+    打印多模型对比表格
+
+    参数:
+        results_list:  元素为 (model_name, rmse, score, num_params) 的列表
+        baseline_name: 基准模型名（用于计算相对提升幅度）
+        subset:        数据集名称
+
+    返回:
+        各模型指标字典（用于保存）
     """
-    lstm_rmse, lstm_score, _, _, lstm_params = lstm_results
-    stgnn_rmse, stgnn_score, _, _, stgnn_params = stgnn_results
+    print(f"\n{'='*75}")
+    print(f"  📊 {subset} 单工况预测性能对比")
+    print(f"{'='*75}")
+    print(f"  {'模型':<16}{'RMSE ↓':>10}{'NASA Score ↓':>14}{'参数量':>12}")
+    print(f"  {'-'*75}")
 
-    # 计算提升幅度
-    rmse_improve = (lstm_rmse - stgnn_rmse) / lstm_rmse * 100
-    score_improve = (lstm_score - stgnn_score) / lstm_score * 100
+    # 记录 LSTM 基准指标
+    baseline_rmse = baseline_score = None
+    for name, rmse, score, params in results_list:
+        print(f"  {name:<16}{rmse:>10.2f}{score:>14.2f}{params:>12,}")
+        if name == baseline_name:
+            baseline_rmse, baseline_score = rmse, score
 
-    print(f"\n{'='*65}")
-    print(f"  📊 FD001 单工况预测性能对比")
-    print(f"{'='*65}")
-    print(f"  {'模型':<30} {'RMSE ↓':>10} {'NASA Score ↓':>15} {'参数量':>10}")
-    print(f"  {'-'*65}")
-    print(f"  {'BasicLSTM':<30} {lstm_rmse:>10.2f} {lstm_score:>15.2f} {lstm_params:>10,}")
-    print(f"  {'STGNN':<30} {stgnn_rmse:>10.2f} {stgnn_score:>15.2f} {stgnn_params:>10,}")
-    print(f"  {'-'*65}")
+    # 找出 RMSE 最优模型
+    best_name, best_rmse, best_score, _ = min(results_list, key=lambda r: r[1])
 
-    if rmse_improve > 0:
-        print(f"  ✅ STGNN 的 RMSE 比 LSTM 降低了 {rmse_improve:.1f}%")
-    else:
-        print(f"  ⚠️ STGNN 的 RMSE 比 LSTM 升高了 {-rmse_improve:.1f}%")
+    print(f"  {'-'*75}")
+    print(f"  🏆 RMSE 最优模型: {best_name}  (RMSE={best_rmse:.2f}, "
+          f"NASA Score={best_score:.2f})")
 
-    if score_improve > 0:
-        print(f"  ✅ STGNN 的 NASA Score 比 LSTM 降低了 {score_improve:.1f}%")
-    else:
-        print(f"  ⚠️ STGNN 的 NASA Score 比 LSTM 升高了 {-score_improve:.1f}%")
-
-    print(f"{'='*65}")
+    # 相对 LSTM 基准的提升幅度
+    if baseline_rmse is not None:
+        for name, rmse, score, params in results_list:
+            if name == baseline_name:
+                continue
+            rmse_improve = (baseline_rmse - rmse) / baseline_rmse * 100
+            score_improve = (baseline_score - score) / baseline_score * 100
+            rmse_word = "✅ 降低" if rmse_improve >= 0 else "⚠️ 升高"
+            score_word = "✅ 降低" if score_improve >= 0 else "⚠️ 升高"
+            print(f"  · {name:<10} vs {baseline_name}: "
+                  f"RMSE {rmse_word} {abs(rmse_improve):.1f}% | "
+                  f"NASA Score {score_word} {abs(score_improve):.1f}%")
+    print(f"{'='*75}")
 
     return {
-        'lstm': {'rmse': float(lstm_rmse), 'score': float(lstm_score), 'params': lstm_params},
-        'stgnn': {'rmse': float(stgnn_rmse), 'score': float(stgnn_score), 'params': stgnn_params},
-        'rmse_improvement_pct': float(rmse_improve),
-        'score_improvement_pct': float(score_improve),
+        name: {
+            'rmse': float(rmse),
+            'score': float(score),
+            'params': int(params)
+        }
+        for name, rmse, score, params in results_list
     }
 
 
@@ -276,26 +295,39 @@ def save_results(results, subset='FD001'):
 # 主入口
 # ============================================================
 if __name__ == '__main__':
-    print("=" * 65)
-    print(f"  🧪 TODO 4: FD001 单工况预测性能对比实验 (v2: 无 Transformer)")
-    print(f"  BasicLSTM vs STGNN (MSTCN + GAT)")
-    print("=" * 65)
+    print("=" * 75)
+    print("  🧪 TODO 4: FD001 单工况预测性能对比实验")
+    print("  LSTM vs STGNN vs GRU vs TCN vs CNN+LSTM")
+    print("=" * 75)
 
     # ---- 设备选择 ----
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n🖥️  评估设备: {device}")
 
-    # ---- 1. 加载测试数据（两个模型共用） ----
+    # ---- 1. 加载测试数据（所有模型共用） ----
     test_loader, edge_index, y_test = load_test_data(subset='FD001')
 
-    # ---- 2. 评估 LSTM ----
-    lstm_results = evaluate_lstm(test_loader, device)
+    # ---- 2. 定义评估任务（模型名, 构建函数, 权重路径, edge_index） ----
+    tasks = [
+        ('LSTM',       build_lstm,    'saved_models/lstm_best_FD001.pt',         None),
+        ('STGNN',      build_stgnn,   'saved_models/stgnn_static_best_FD001.pt', edge_index),
+        ('GRU',        build_gru,     'saved_models/gru_best_FD001.pt',          None),
+        ('TCN',        build_tcn,     'saved_models/tcn_best_FD001.pt',          None),
+        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/cnn_lstm_best_FD001.pt',    None),
+    ]
 
-    # ---- 3. 评估 STGNN ----
-    stgnn_results = evaluate_stgnn(test_loader, edge_index, device)
+    # ---- 3. 依次评估各模型 ----
+    results_list = []
+    for model_name, builder, model_path, edge in tasks:
+        model = builder(device)
+        rmse, score, _, _, num_params = evaluate_model(
+            test_loader, device, model, model_name, model_path,
+            edge_index=edge
+        )
+        results_list.append((model_name, rmse, score, num_params))
 
     # ---- 4. 打印对比表格 ----
-    comparison = print_comparison(lstm_results, stgnn_results)
+    comparison = print_comparison(results_list)
 
     # ---- 5. 保存结果 ----
     save_results(comparison)

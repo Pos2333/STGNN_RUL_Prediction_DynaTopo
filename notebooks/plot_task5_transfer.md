@@ -2,7 +2,7 @@
 
 > **脚本**: `notebooks/plot_task5_transfer.py`  
 > **运行**: `conda activate rul_env ; python notebooks/plot_task5_transfer.py`  
-> **数据来源**: `logs/dynatopo/eval_cross_condition.json`（由 `scripts/evaluate_2_dynatopo.py --preset all` 生成）
+> **数据来源**: `logs/dynatopo/eval_cross_condition.json`（测试集，由 `scripts/evaluate_2_dynatopo.py --preset all` 生成）与 `logs/dynatopo/eval_transfer_val.json`（验证集，由 `scripts/evaluate_transfer_val.py` 重估）
 
 本文档回答三个问题：① 如何行文如实呈现"动态图在多数场景无优势、仅在无监督 UDA 显著优于静态基线"这一事实；② 如何体现动态图相较静态图的优势；③ 最终选用哪种动态图策略。
 
@@ -12,10 +12,10 @@
 
 | 图号 | 图名 | 建议插入位置 | 输出文件 |
 |------|------|-------------|----------|
-| **图5-3** | 跨工况迁移 RMSE 对比（4 模型 × 3 目标域 × 4 方式，2×2 分面） | §5.3 跨工况实验分析 | `figures/transfer_rmse_by_model.png` |
-| **图5-4** | 跨工况迁移 NASA Score 对比（log 尺度） | §5.3 附录 | `figures/transfer_nasa_by_model.png` |
-| **图5-5** | 无监督 UDA 场景 RMSE 对比（核心图，突出动态图优势） | §5.3 核心结论处 | `figures/transfer_uda_rmse_comparison.png` |
-| **图5-6** | UDA 相对无迁移的 RMSE 降幅（LMMD 对齐有效性） | §5.3 核心结论处 | `figures/transfer_uda_improvement.png` |
+| **图5-3** | 目标域验证集指标网格（RMSE+NASA × 监督式/无迁移/UDA） | §5.3 跨工况实验分析 | `figures/transfer_val_grid.png` |
+| **图5-4** | 目标域测试集指标网格（RMSE+NASA × 监督式/无迁移/UDA） | §5.3 附录 | `figures/transfer_test_grid.png` |
+| **图5-5** | UDA 相对无迁移的 4 指标降幅（val/test × RMSE/NASA） | §5.3 核心结论处 | `figures/transfer_uda_improvement.png` |
+| **图5-6** | UDA 降幅热力图（行=模型，列=目标域，绿=改善） | §5.3 核心结论处 | `figures/transfer_uda_improvement_heatmap.png` |
 
 配色约定：⬜ 灰 = 静态基线，🔵 蓝 = A1B1，🟢 绿 = A2B1，🔴 红 = A2B2。
 
