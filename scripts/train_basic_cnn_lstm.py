@@ -175,6 +175,8 @@ def train_one_epoch(model, dataloader, loss_fn, optimizer, device):
         # 反向传播
         optimizer.zero_grad()
         loss.backward()
+        # 梯度裁剪，防止梯度爆炸
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         total_loss += loss.item()

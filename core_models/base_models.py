@@ -10,6 +10,25 @@ import torch.nn as nn
 
 
 # ============================================================
+# 防死亡 ReLU 辅助函数
+# ============================================================
+def _init_fc_bias_positive(fc_module):
+    """
+    将全连接输出头最后一层 Linear 的 bias 初始化为正数。
+
+    ⚠️ 防死亡 ReLU：若 bias 初始为负，最后一层 ReLU（保证 RUL >= 0）
+    输入恒为负 → 输出恒为 0，梯度无法回传（死亡 ReLU），训练完全停滞。
+    与 stgnn_static.py / stgnn_dynatopo.py 中的修复保持一致。
+    """
+    last_linear = None
+    for layer in fc_module:
+        if isinstance(layer, nn.Linear):
+            last_linear = layer
+    if last_linear is not None and last_linear.bias is not None:
+        last_linear.bias.data.fill_(1.0)
+
+
+# ============================================================
 # 基础 LSTM 模型 —— 用于 RUL 预测的基线
 # ============================================================
 class BasicLSTM(nn.Module):
@@ -59,6 +78,7 @@ class BasicLSTM(nn.Module):
             nn.Linear(hidden_dim // 2, 1),    # 输出单个 RUL 值
             nn.ReLU()                           # RUL 非负约束
         )
+        _init_fc_bias_positive(self.fc)  # 防死亡 ReLU
 
     def forward(self, x):
         """
@@ -137,6 +157,7 @@ class GRUModel(nn.Module):
             nn.Linear(hidden_dim // 2, 1),    # 输出单个 RUL 值
             nn.ReLU()                           # RUL 非负约束
         )
+        _init_fc_bias_positive(self.fc)  # 防死亡 ReLU
 
     def forward(self, x):
         """
@@ -229,6 +250,7 @@ class TCNModel(nn.Module):
             nn.Linear(num_channels // 2, 1),    # 输出单个 RUL 值
             nn.ReLU()                           # RUL 非负约束
         )
+        _init_fc_bias_positive(self.fc)  # 防死亡 ReLU
 
     def forward(self, x):
         """
@@ -326,6 +348,7 @@ class CNN_LSTM_Model(nn.Module):
             nn.Linear(lstm_hidden // 2, 1),    # 输出单个 RUL 值
             nn.ReLU()                           # RUL 非负约束
         )
+        _init_fc_bias_positive(self.fc)  # 防死亡 ReLU
 
     def forward(self, x):
         """
