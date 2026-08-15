@@ -99,12 +99,12 @@ def main():
     args = parser.parse_args()
 
     if args.preset == 'all':
-        presets = ['static', 'A1B1', 'A1B2']
+        presets = ['static', 'A1B1', 'A2B1', 'A2B2']
     else:
         presets = [args.preset]
 
     print("=" * 70)
-    print(f"  📊 跨工况评估（无迁移 vs 半监督LMMD）—— {presets}")
+    print(f"  📊 跨工况评估（无迁移 vs LMMD半监督 vs 无自适应微调）—— {presets}")
     print("=" * 70)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -157,27 +157,65 @@ def main():
             else:
                 print(f"  [{preset}] 半监督LMMD {target}: ⚠️ 缺少迁移模型 {transfer_path}")
 
+            # ---- 无自适应（none）：目标域有监督微调，作为域自适应基线下限 ----
+            none_path = f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+            none_rmse = none_score = None
+            if os.path.exists(none_path):
+                model = build_model(preset, device)
+                ckpt = torch.load(none_path, map_location=device, weights_only=False)
+                model.load_state_dict(ckpt['model_state_dict'])
+                preds = evaluate(model, X_test, edge_index, device)
+                none_rmse = float(compute_rmse(preds, y_test))
+                none_score = float(compute_nasa_score(preds, ruls))
+                print(f"  [{preset}] 无自适应none {target}: "
+                      f"RMSE={none_rmse:.2f}, NASA={none_score:.1f}")
+            else:
+                print(f"  [{preset}] 无自适应none {target}: ⚠️ 缺少迁移模型 {none_path}")
+
+            # ---- 无监督域自适应（lmmd_uda）：目标域无标签，单向 LMMD ----
+            uda_path = f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+            uda_rmse = uda_score = None
+            if os.path.exists(uda_path):
+                model = build_model(preset, device)
+                ckpt = torch.load(uda_path, map_location=device, weights_only=False)
+                model.load_state_dict(ckpt['model_state_dict'])
+                preds = evaluate(model, X_test, edge_index, device)
+                uda_rmse = float(compute_rmse(preds, y_test))
+                uda_score = float(compute_nasa_score(preds, ruls))
+                print(f"  [{preset}] 无监督UDA {target}: "
+                      f"RMSE={uda_rmse:.2f}, NASA={uda_score:.1f}")
+            else:
+                print(f"  [{preset}] 无监督UDA {target}: ⚠️ 缺少迁移模型 {uda_path}")
+
             all_results[f'{preset}_{target}'] = {
                 'preset': preset, 'target': target,
                 'no_transfer_rmse': no_transfer_rmse,
                 'no_transfer_score': no_transfer_score,
                 'semi_rmse': semi_rmse,
                 'semi_score': semi_score,
+                'none_rmse': none_rmse,
+                'none_score': none_score,
+                'uda_rmse': uda_rmse,
+                'uda_score': uda_score,
             }
 
-    # ---- 汇总表格 ----
+    # ---- 汇总表格（每个模型/目标域打印 RMSE 与 NASA 两行）----
     print(f"\n{'='*80}")
     print(f"  📋 跨工况评估汇总")
     print(f"{'='*80}")
-    print(f"  {'模型':<10} {'目标':<8} {'无迁移RMSE':>10} {'无迁移NASA':>12} "
-          f"{'半监督RMSE':>10} {'半监督NASA':>12}")
-    print(f"  {'-'*70}")
+    print(f"  {'模型':<8} {'目标':<7} {'指标':<6} {'无迁移':>12} {'LMMD-semi':>12} {'none(FT)':>12} {'UDA':>12}")
+    print(f"  {'-'*80}")
     for k, r in all_results.items():
         def fmt(v, nd=2):
             return f"{v:.{nd}f}" if v is not None else "—"
-        print(f"  {r['preset']:<10} {r['target']:<8} "
-              f"{fmt(r['no_transfer_rmse']):>10} {fmt(r['no_transfer_score'],1):>12} "
-              f"{fmt(r['semi_rmse']):>10} {fmt(r['semi_score'],1):>12}")
+        # RMSE 行
+        print(f"  {r['preset']:<8} {r['target']:<7} {'RMSE':<6} "
+              f"{fmt(r['no_transfer_rmse']):>12} {fmt(r['semi_rmse']):>12} {fmt(r['none_rmse']):>12} "
+              f"{fmt(r['uda_rmse']):>12}")
+        # NASA Score 行
+        print(f"  {'':<8} {'':<7} {'NASA':<6} "
+              f"{fmt(r['no_transfer_score'], 1):>12} {fmt(r['semi_score'], 1):>12} "
+              f"{fmt(r['none_score'], 1):>12} {fmt(r['uda_score'], 1):>12}")
 
     # 保存
     os.makedirs('logs/dynatopo', exist_ok=True)

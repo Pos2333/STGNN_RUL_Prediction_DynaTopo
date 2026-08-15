@@ -79,7 +79,7 @@ def summarize(results):
 
 
 def plot_box(summary):
-    """绘制箱线图对比 A1/A2 的离散程度"""
+    """绘制箱线图对比各模型的验证集指标离散程度（val loss / val RMSE / val NASA）"""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -93,10 +93,15 @@ def plot_box(summary):
 
     # 重新加载原始数据用于箱线图
     results = load_all_results()
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    for ax, key, title in [(axes[0], 'test_rmse', 'Test RMSE (lower is better)'),
-                           (axes[1], 'test_nasa_score', 'Test NASA Score (lower is better)')]:
+    # 按验证集指标绘图（模型选择只看验证集，测试集仅用于最终报告）
+    panels = [
+        ('val_loss',       'Val Loss (lower is better)'),
+        ('val_rmse',       'Val RMSE (lower is better)'),
+        ('val_nasa_score', 'Val NASA Score (lower is better)'),
+    ]
+    for ax, (key, title) in zip(axes, panels):
         data = [[d[key] for d in results[p].values()] for p in PRESETS]
         # matplotlib >= 3.9 弃用 labels（改名 tick_labels）；做版本兼容，云端 matplotlib 版本未知
         try:
@@ -107,7 +112,7 @@ def plot_box(summary):
         ax.set_ylabel(key)
         ax.grid(axis='y', alpha=0.3)
 
-    fig.suptitle('Multi-seed stability: A1 vs A2 (after softmax fix)',
+    fig.suptitle('Multi-seed stability (validation metrics): static vs A1 vs A2',
                  fontsize=15, fontweight='bold')
     plt.tight_layout()
     out = os.path.join(ROOT, LOG_DIR, 'stability_boxplot.png')
