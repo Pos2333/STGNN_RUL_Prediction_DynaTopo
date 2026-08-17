@@ -1,7 +1,7 @@
 # 📊 第2章 滑动窗口样本构建示意图
 
 > ⚠️ **代码**: `plot_ch2_sliding_window.py`  
-> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/plot_ch2_sliding_window.py`
+> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/original_paper_static/plot_ch2_sliding_window.py`
 
 ## 产出图表
 

@@ -1,7 +1,7 @@
 # 🎨 第3~4章 概念示意图
 
 > ⚠️ **代码已迁移至**: `plot_ch3_ch4_conceptual.py`  
-> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/plot_ch3_ch4_conceptual.py`
+> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/original_paper_static/plot_ch3_ch4_conceptual.py`
 
 ## 产出图表
 

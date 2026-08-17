@@ -1,7 +1,7 @@
 # 📊 第2章 数据预处理可视化
 
 > ⚠️ **代码已迁移至**: `plot_ch2_graph_analysis.py`  
-> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/plot_ch2_graph_analysis.py`
+> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/original_paper_static/plot_ch2_graph_analysis.py`
 
 ## 产出图表
 

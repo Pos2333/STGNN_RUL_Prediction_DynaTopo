@@ -96,11 +96,11 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
 # 2. 各模型构建函数（超参数与对应训练脚本完全一致，保证公平对比）
 # ============================================================
 def build_lstm(device):
-    """BasicLSTM —— 与 train_basic_lstm.py 一致"""
+    """Parameter-matched LSTM —— 参数量与 STGNN 接近（133,501 vs 136,229）"""
     return BasicLSTM(
         input_dim=NUM_FEATURES,
-        hidden_dim=128,
-        num_layers=3,
+        hidden_dim=100,
+        num_layers=2,
         dropout=0.3
     ).to(device)
 
@@ -309,11 +309,11 @@ if __name__ == '__main__':
 
     # ---- 2. 定义评估任务（模型名, 构建函数, 权重路径, edge_index） ----
     tasks = [
-        ('LSTM',       build_lstm,    'saved_models/lstm_best_FD001.pt',         None),
-        ('STGNN',      build_stgnn,   'saved_models/stgnn_static_best_FD001.pt', edge_index),
-        ('GRU',        build_gru,     'saved_models/gru_best_FD001.pt',          None),
-        ('TCN',        build_tcn,     'saved_models/tcn_best_FD001.pt',          None),
-        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/cnn_lstm_best_FD001.pt',    None),
+        ('LSTM', build_lstm, 'saved_models/original_paper_static/baselines/lstm_pmatch_best_FD001.pt', None),
+        ('STGNN',      build_stgnn,   'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt', edge_index),
+        ('GRU',        build_gru,     'saved_models/original_paper_static/baselines/gru_best_FD001.pt',          None),
+        ('TCN',        build_tcn,     'saved_models/original_paper_static/baselines/tcn_best_FD001.pt',          None),
+        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/original_paper_static/baselines/cnn_lstm_best_FD001.pt',    None),
     ]
 
     # ---- 3. 依次评估各模型 ----
@@ -327,7 +327,7 @@ if __name__ == '__main__':
         results_list.append((model_name, rmse, score, num_params))
 
     # ---- 4. 打印对比表格 ----
-    comparison = print_comparison(results_list)
+    comparison = print_comparison(results_list, baseline_name='LSTM')
 
     # ---- 5. 保存结果 ----
     save_results(comparison)

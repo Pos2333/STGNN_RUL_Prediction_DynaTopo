@@ -1,7 +1,7 @@
 # 📊 第2章 RUL 标签截断前后对比图
 
 > ⚠️ **代码**: `plot_ch2_rul_clip.py`  
-> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/plot_ch2_rul_clip.py`
+> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/original_paper_static/plot_ch2_rul_clip.py`
 
 ## 产出图表
 

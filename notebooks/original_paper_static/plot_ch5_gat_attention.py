@@ -18,7 +18,7 @@ sns.set_theme(style='whitegrid', context='paper', font_scale=1.15,
 plt.rcParams['font.sans-serif'] = ['SimHei','Microsoft YaHei','DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJ_ROOT)
 from configs.config import (NUM_FEATURES, NUM_SENSORS, BATCH_SIZE, RANDOM_SEED,
     MSTCN_NUM_CHANNELS, MSTCN_KERNEL_SIZES, MSTCN_DROPOUT,
@@ -26,7 +26,7 @@ from configs.config import (NUM_FEATURES, NUM_SENSORS, BATCH_SIZE, RANDOM_SEED,
     TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS,
     TRANSFORMER_DROPOUT, FC_HIDDEN_DIM)
 from core_models.stgnn_static import STGNN_Static
-from notebooks.gat_attention_helper import extract_gat_attention_matrix
+from gat_attention_helper import extract_gat_attention_matrix
 
 np.random.seed(RANDOM_SEED); torch.manual_seed(RANDOM_SEED)
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -71,7 +71,10 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE,
                          shuffle=False, drop_last=False)
 
 # === 2. 加载训练好的 STGNN v2 模型 ===
-MODEL_PATH = os.path.join(PROJ_ROOT, 'saved_models', 'stgnn_static_best_FD001.pt')
+MODEL_PATH = os.path.join(
+    PROJ_ROOT, 'saved_models', 'original_paper_static', 'stgnn',
+    'stgnn_static_best_FD001.pt'
+)
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"找不到模型: {MODEL_PATH}。请先运行 train_basic_v2.py 训练模型。")
 

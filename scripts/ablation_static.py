@@ -17,7 +17,7 @@
 # 输出:
 #   - 终端打印 RMSE / NASA Score 对比表格
 #   - 结果保存到 logs/ablation_v2_*.json
-#   - 模型保存到 saved_models/ablation_v2_*.pt
+#   - 模型保存到 saved_models/original_paper_static/ablation/ablation_v2_*.pt
 #
 # 用法:
 #   python scripts/ablation_study_v2.py
@@ -79,7 +79,7 @@ ABLATION_CONFIGS = {
 # 预训练模型映射：这部分变体直接复用已有模型，无需从零训练
 # （各脚本共用 RANDOM_SEED=42 + val_ratio=0.2，训练/验证集划分完全一致）
 PRETRAINED_PATHS = {
-    "MSTCN + GAT (新基线)": "saved_models/stgnn_static_best_FD001.pt",
+    "MSTCN + GAT (新基线)": "saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt",
     "完整 STGNN (原始)":    "saved_models/stgnn_best_FD001.pt",
 }
 
@@ -398,7 +398,10 @@ def main():
         # ---- 保存模型（预训练复用的跳过，避免冗余） ----
         if name not in PRETRAINED_PATHS:
             safe_name = name.replace(' ', '_').replace('(', '').replace(')', '')
-            model_path = f"saved_models/ablation_v2_{safe_name}.pt"
+            model_path = (
+                f"saved_models/original_paper_static/ablation/"
+                f"ablation_v2_{safe_name}.pt"
+            )
             torch.save(model.state_dict(), model_path)
             print(f"  💾 模型已保存 → {model_path}")
         print(f"     📊 {name}: RMSE={rmse:.4f}, Score={score:.4f}")

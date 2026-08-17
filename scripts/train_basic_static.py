@@ -133,7 +133,7 @@ def load_data_and_graph(subset='FD001', processed_dir='data/processed',
 # ============================================================
 def save_checkpoint(model, optimizer, epoch, best_loss,
                     train_losses, val_losses,
-                    filepath='saved_models/stgnn_static_checkpoint.pt'):
+                    filepath='saved_models/original_paper_static/stgnn/stgnn_static_checkpoint.pt'):
     """保存训练状态，支持断点续训"""
     torch.save({
         'epoch': epoch,
@@ -149,7 +149,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss,
 # ============================================================
 # 3. 加载 checkpoint（恢复训练）
 # ============================================================
-def load_checkpoint(model, optimizer, filepath='saved_models/stgnn_static_checkpoint.pt'):
+def load_checkpoint(model, optimizer, filepath='saved_models/original_paper_static/stgnn/stgnn_static_checkpoint.pt'):
     """从 checkpoint 恢复训练状态"""
     if os.path.exists(filepath):
         checkpoint = torch.load(filepath)
@@ -233,7 +233,7 @@ def validate(model, dataloader, loss_fn, edge_index, device):
 # ============================================================
 def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, device,
           num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
-          resume=False, checkpoint_path='saved_models/stgnn_static_checkpoint.pt'):
+          resume=False, checkpoint_path='saved_models/original_paper_static/stgnn/stgnn_static_checkpoint.pt'):
     """STGNN (v2: 无 Transformer) 主训练循环"""
     # ---- 尝试恢复训练 ----
     if resume:
@@ -295,7 +295,7 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index, devic
             best_nasa = val_nasa
             patience_counter = 0
 
-            best_model_path = 'saved_models/stgnn_static_best_FD001.pt'
+            best_model_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
@@ -414,7 +414,7 @@ if __name__ == '__main__':
     print(f"  加载最佳模型...")
     print(f"{'='*60}")
 
-    best_checkpoint = torch.load('saved_models/stgnn_static_best_FD001.pt')
+    best_checkpoint = torch.load('saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt')
     model.load_state_dict(best_checkpoint['model_state_dict'])
     print(f"  已加载最佳模型 (Epoch {best_checkpoint['epoch']+1}, "
           f"Val Loss: {best_checkpoint['best_loss']:.4f})")
@@ -427,4 +427,4 @@ if __name__ == '__main__':
     evaluate_metrics(y_pred, y_true, print_result=True)
 
     print(f"\n完成！STGNN v2 (MSTCN + GAT) 主线模型训练完毕。")
-    print(f"  最佳模型保存在: saved_models/stgnn_static_best_FD001.pt")
+    print(f"  最佳模型保存在: saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt")

@@ -1,8 +1,8 @@
 # 📊 第5章 GAT 注意力权重热力图
 
 > ⚠️ **代码**: `plot_ch5_gat_attention.py`  
-> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/plot_ch5_gat_attention.py`  
-> ⚙️ **依赖**: 需先运行 `train_basic_v2.py` 训练得到 `saved_models/stgnn_v2_best_FD001.pt`
+> 运行: `conda activate rul_env ; $env:KMP_DUPLICATE_LIB_OK="TRUE" ; python notebooks/original_paper_static/plot_ch5_gat_attention.py`  
+> ⚙️ **依赖**: `saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt`
 
 ## 产出图表
 
@@ -13,8 +13,8 @@
 ### 数据来源
 - `data/processed/FD001_test.npz` — FD001 测试集（用于前向传播提取注意力）
 - `data/processed/FD001_train_graph.pt` — 图结构 edge_index
-- `saved_models/stgnn_v2_best_FD001.pt` — 训练好的 STGNN v2 模型
-- 辅助模块: `notebooks/gat_attention_helper.py` — 注意力权重提取
+- `saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt` — 训练好的静态 STGNN 模型
+- 辅助模块: `notebooks/original_paper_static/gat_attention_helper.py` — 注意力权重提取
 
 ### 技术说明
 - 提取 GAT 第一层（4头注意力）的权重，按4头平均后聚合为 14×14 矩阵

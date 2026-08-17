@@ -20,7 +20,7 @@ sns.set_theme(style='whitegrid', context='paper', font_scale=1.15,
 plt.rcParams['font.sans-serif'] = ['SimHei','Microsoft YaHei','DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJ_ROOT)
 from configs.config import NUM_SENSORS, GRAPH_THRESHOLD, RANDOM_SEED, KEPT_SENSOR_INDICES
 np.random.seed(RANDOM_SEED)

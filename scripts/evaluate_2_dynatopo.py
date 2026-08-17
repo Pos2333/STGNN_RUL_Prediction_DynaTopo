@@ -117,7 +117,7 @@ def main():
         prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
         # FD001 预训练模型路径
         if preset == 'static':
-            pretrain_path = 'saved_models/stgnn_static_best_FD001.pt'
+            pretrain_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
         else:
             pretrain_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
 
@@ -143,7 +143,12 @@ def main():
                 print(f"\n  [{preset}] 无迁移 {target}: ⚠️ 缺少预训练模型 {pretrain_path}")
 
             # ---- 半监督 LMMD：迁移模型 ----
-            transfer_path = f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+            transfer_path = (
+                f'saved_models/original_paper_static/transfer/lmmd_semi/'
+                f'transfer_static_lmmd_semi_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+            )
             semi_rmse = semi_score = None
             if os.path.exists(transfer_path):
                 model = build_model(preset, device)
@@ -158,7 +163,12 @@ def main():
                 print(f"  [{preset}] 半监督LMMD {target}: ⚠️ 缺少迁移模型 {transfer_path}")
 
             # ---- 无自适应（none）：目标域有监督微调，作为域自适应基线下限 ----
-            none_path = f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+            none_path = (
+                f'saved_models/original_paper_static/transfer/none/'
+                f'transfer_static_none_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+            )
             none_rmse = none_score = None
             if os.path.exists(none_path):
                 model = build_model(preset, device)
@@ -173,7 +183,12 @@ def main():
                 print(f"  [{preset}] 无自适应none {target}: ⚠️ 缺少迁移模型 {none_path}")
 
             # ---- 无监督域自适应（lmmd_uda）：目标域无标签，单向 LMMD ----
-            uda_path = f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+            uda_path = (
+                f'saved_models/original_paper_static/transfer/lmmd_uda/'
+                f'transfer_static_lmmd_uda_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+            )
             uda_rmse = uda_score = None
             if os.path.exists(uda_path):
                 model = build_model(preset, device)

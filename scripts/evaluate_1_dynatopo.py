@@ -102,7 +102,7 @@ def main():
     # ================================================================
     # 1. 静态基线
     # ================================================================
-    model_path = 'saved_models/stgnn_static_best_FD001.pt'
+    model_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
     log_path = find_latest_log('stgnn_static_FD001_*.json')
     val_info = read_val_metrics_from_log(log_path) if log_path else {}
 
