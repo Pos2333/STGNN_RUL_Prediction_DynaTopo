@@ -47,11 +47,12 @@ class AttentionGenerator(BaseDynamicGraphGenerator):
     """
 
     def __init__(self, sensor_dim=128, op_dim=3, num_sensors=14,
-                 top_k=20, hidden_dim=64, num_heads=4):
+                 top_k=20, hidden_dim=64, num_heads=4, use_op_modulation=True):
         super().__init__(sensor_dim, op_dim, num_sensors, top_k, hidden_dim)
 
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
+        self.use_op_modulation = use_op_modulation
 
         # ---- Q/K 投影（多头）----
         self.q_proj = nn.Linear(sensor_dim, hidden_dim)
@@ -101,12 +102,13 @@ class AttentionGenerator(BaseDynamicGraphGenerator):
         attn = attn / (self.head_dim ** 0.5)
 
         # ---- Step 3: 工况偏置 + softmax 归一化 ----
-        op_enc = self.op_encoder(op_feat.permute(0, 2, 1))  # [B, 16, 1]
-        op_enc = op_enc.squeeze(-1)                          # [B, 16]
-        bias = self.op_to_bias(op_enc).view(B, N, N)        # [B, N, N]
-
-        # logits = 注意力分数 + 工况偏置
-        logits = attn + bias
+        if self.use_op_modulation:
+            op_enc = self.op_encoder(op_feat.permute(0, 2, 1))  # [B, 16, 1]
+            op_enc = op_enc.squeeze(-1)                          # [B, 16]
+            bias = self.op_to_bias(op_enc).view(B, N, N)        # [B, N, N]
+            logits = attn + bias
+        else:
+            logits = attn
 
         # softmax 归一化（标准 Transformer 注意力实现）：
         #   - 每个源节点 i 对所有目标节点 j 的分数归一化为概率分布

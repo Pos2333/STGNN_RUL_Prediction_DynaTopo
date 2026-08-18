@@ -44,6 +44,9 @@ class DynaTopoConfig:
     # ---- 静态图开关 ----
     use_static_graph: bool = True                # 是否保留 Spearman 静态图
 
+    # ---- 工况调制开关（消融用）----
+    use_op_modulation: bool = True               # 动态图生成是否受工况参数调制
+
     # ---- MSTCN/GAT 参数（沿用 config.py 中的值）----
     mstcn_channels: list = field(default_factory=lambda: [32, 64, 128])
     mstcn_kernels: list = field(default_factory=lambda: [3, 5, 7])
@@ -130,6 +133,30 @@ ABLATION_CONFIGS: Dict[str, DynaTopoConfig] = {
         generator="similarity",
         fusion="feature",
         use_static_graph=False,
+    ),
+
+    # ===== A2B2 组件消融（UDA 场景，FD002）=====
+    "A2B2_wo_dynamic": DynaTopoConfig(
+        name="消融: A2B2 去动态图（=仅静态图）",
+        preset="A2B2_wo_dynamic",
+        generator="none",
+        fusion="none",
+        use_static_graph=True,
+    ),
+    "A2B2_wo_static": DynaTopoConfig(
+        name="消融: A2B2 去静态图（=仅注意力动态图）",
+        preset="A2B2_wo_static",
+        generator="attention",
+        fusion="feature",
+        use_static_graph=False,
+    ),
+    "A2B2_wo_op": DynaTopoConfig(
+        name="消融: A2B2 去工况调制（注意力但不看 op）",
+        preset="A2B2_wo_op",
+        generator="attention",
+        fusion="topology",
+        use_static_graph=True,
+        use_op_modulation=False,
     ),
 }
 

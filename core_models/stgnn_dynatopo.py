@@ -94,7 +94,8 @@ class STGNN_DynaTopo(nn.Module):
                 op_dim=num_op_settings,
                 num_sensors=num_sensors,
                 top_k=config.generator_top_k,
-                hidden_dim=config.generator_hidden
+                hidden_dim=config.generator_hidden,
+                use_op_modulation=config.use_op_modulation,
             )
         else:
             self.topo_generator = None

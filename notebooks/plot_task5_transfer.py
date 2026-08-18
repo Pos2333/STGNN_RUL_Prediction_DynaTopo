@@ -5,11 +5,13 @@
 # 数据来源:
 #   logs/dynatopo/eval_cross_condition.json   —— 目标域测试集 RMSE & NASA
 #   logs/dynatopo/eval_transfer_val.json      —— 目标域验证集 RMSE & NASA（重估）
+#   logs/dynatopo/ablation_uda_A2B2_*.json    —— A2B2 组件消融结果
 # 输出:
 #   figures/transfer_val_grid.png         —— 验证集指标网格（RMSE+NASA × 3 方式）
 #   figures/transfer_test_grid.png        —— 测试集指标网格（RMSE+NASA × 3 方式）
 #   figures/transfer_uda_improvement.png  —— UDA 相对无迁移的 4 指标降幅
-#   figures/transfer_uda_improvement_heatmap.png —— 降幅热力图（2×2 面板）
+#   figures/transfer_uda_improvement_heatmap.png —— 降幅热力图
+#   figures/ablation_A2B2_uda.png         —— A2B2 组件消融对比（2×2 面板）
 #
 # 运行:
 #   python notebooks/plot_task5_transfer.py
@@ -219,5 +221,72 @@ imp = draw_improvement()
 
 # ---- 图4: 降幅热力图 ----
 draw_improvement_heatmap(imp)
+
+
+def draw_ablation():
+    """消融实验对比图：A2B2 组件消融（UDA, FD001→FD002）"""
+    # 查找最新消融结果
+    import glob
+    files = sorted(glob.glob(os.path.join(ROOT, 'logs', 'dynatopo', 'ablation_uda_A2B2_*.json')))
+    if not files:
+        print("⚠️ 未找到消融结果文件，跳过消融可视化")
+        return
+    with open(files[-1], encoding='utf-8') as f:
+        abl_data = json.load(f)
+
+    # 加入 A2B2 完整变体（来自 eval_cross_condition）
+    abl_data['A2B2'] = {
+        'preset': 'A2B2', 'label': 'A2B2（完整）',
+        'test_rmse': test_data['A2B2_FD002']['uda_rmse'],
+        'test_nasa': test_data['A2B2_FD002']['uda_score'],
+        'params': 166761,
+    }
+
+    labels_order = ['A2B2', 'wo_dynamic', 'wo_static', 'wo_op']
+    label_names = {
+        'A2B2': 'A2B2\n（完整）',
+        'wo_dynamic': '去动态图\n（仅静态）',
+        'wo_static': '去静态图\n（仅动态）',
+        'wo_op': '去工况感知',
+    }
+    rmse_vals = [abl_data[k]['test_rmse'] for k in labels_order]
+    nasa_vals = [abl_data[k]['test_nasa'] for k in labels_order]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8))
+
+    colors = ['#D62728', '#7F8C8D', '#7F8C8D', '#1F77B4']
+    x = np.arange(len(labels_order))
+
+    # RMSE 子图
+    bars = ax1.bar(x, rmse_vals, color=colors, edgecolor='0.3', linewidth=0.6, width=0.55)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([label_names[k] for k in labels_order], fontsize=10)
+    ax1.set_ylabel('test RMSE', fontsize=11)
+    ax1.set_title('A2B2 组件消融 — RMSE（越低越好）', fontsize=12.5, fontweight='bold')
+    for bar, v in zip(bars, rmse_vals):
+        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1.0,
+                 f'{v:.1f}', ha='center', fontsize=9, fontweight='bold')
+    ax1.axhline(y=rmse_vals[0], color='#D62728', ls='--', lw=1, alpha=0.6)
+
+    # NASA 子图
+    bars2 = ax2.bar(x, nasa_vals, color=colors, edgecolor='0.3', linewidth=0.6, width=0.55)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([label_names[k] for k in labels_order], fontsize=10)
+    ax2.set_ylabel('test NASA Score', fontsize=11)
+    ax2.set_title('A2B2 组件消融 — NASA Score（越低越好）', fontsize=12.5, fontweight='bold')
+    for bar, v in zip(bars2, nasa_vals):
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 8000,
+                 f'{v:.0f}', ha='center', fontsize=8.5, fontweight='bold')
+    ax2.axhline(y=nasa_vals[0], color='#D62728', ls='--', lw=1, alpha=0.6)
+
+    fig.suptitle('A2B2 组件消融实验（UDA, FD001→FD002）', fontsize=14.5, fontweight='bold', y=0.98)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    out = os.path.join(FIG_DIR, 'ablation_A2B2_uda.png')
+    fig.savefig(out, dpi=150, bbox_inches='tight')
+    print(f"📊 已保存 → {out}")
+    plt.close(fig)
+
+
+draw_ablation()
 
 print("\n✅ 全部图表生成完毕！")

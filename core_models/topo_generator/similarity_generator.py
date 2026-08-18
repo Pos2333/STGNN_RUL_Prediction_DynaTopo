@@ -40,8 +40,9 @@ class SimilarityGenerator(BaseDynamicGraphGenerator):
     """
 
     def __init__(self, sensor_dim=128, op_dim=3, num_sensors=14,
-                 top_k=20, hidden_dim=64):
+                 top_k=20, hidden_dim=64, use_op_modulation=True):
         super().__init__(sensor_dim, op_dim, num_sensors, top_k, hidden_dim)
+        self.use_op_modulation = use_op_modulation
 
         # ---- 传感器特征投影（降维后做相似度计算更稳定）----
         self.sensor_proj = nn.Sequential(
@@ -89,14 +90,14 @@ class SimilarityGenerator(BaseDynamicGraphGenerator):
         sim_matrix = torch.bmm(proj_norm, proj_norm.transpose(1, 2))
 
         # ---- Step 3: 工况调制 ----
-        # 将工况编码为逐传感器缩放因子
-        op_enc = self.op_encoder(op_feat.permute(0, 2, 1))  # [B, 16, 1]
-        op_enc = op_enc.squeeze(-1)                          # [B, 16]
-        sensor_scale = torch.sigmoid(self.op_to_scale(op_enc))  # [B, 14]
+        if self.use_op_modulation:
+            # 将工况编码为逐传感器缩放因子
+            op_enc = self.op_encoder(op_feat.permute(0, 2, 1))  # [B, 16, 1]
+            op_enc = op_enc.squeeze(-1)                          # [B, 16]
+            sensor_scale = torch.sigmoid(self.op_to_scale(op_enc))  # [B, 14]
 
-        # 用逐传感器缩放因子调制相似度矩阵
-        # sim[b, i, j] *= scale[b, i] * scale[b, j]
-        sim_matrix = sim_matrix * sensor_scale.unsqueeze(2)  # 行方向缩放
-        sim_matrix = sim_matrix * sensor_scale.unsqueeze(1)  # 列方向缩放
+            # 用逐传感器缩放因子调制相似度矩阵
+            sim_matrix = sim_matrix * sensor_scale.unsqueeze(2)
+            sim_matrix = sim_matrix * sensor_scale.unsqueeze(1)
 
         return sim_matrix
