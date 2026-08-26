@@ -1,7 +1,7 @@
 # ============================================================
 # scripts/train_transfer.py —— 跨工况迁移学习训练脚本（统一版）
 # ============================================================
-# 支持 static / A1B1 / A1B2 等模型的半监督 LMMD 跨工况迁移。
+# 支持 static / A1B1 / A1B2 等模型的跨工况迁移。（支持 none/global_mmd/lmmd_uda/lmmd_semi）
 #
 # 策略：
 #   1. 加载 FD001 上训练好的模型作为预训练起点（static 或 dynatopo）
@@ -304,7 +304,7 @@ def train_transfer(model, src_train_loader, src_val_loader,
                    num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
                    lmmd_lambda=LMMD_LAMBDA,
                    resume=False,
-                   checkpoint_path='saved_models/transfer_static_checkpoint.pt',
+                   checkpoint_path='saved_models/original_paper_static/transfer/lmmd_semi/transfer_static_lmmd_semi_checkpoint_FD002.pt',
                    prefix='static',
                    adapt_mode='lmmd_semi'):
     """
@@ -393,7 +393,14 @@ def train_transfer(model, src_train_loader, src_val_loader,
             patience_counter = 0
             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
-            best_model_path = f'saved_models/transfer_{prefix}_{adapt_mode}_best_{target_subset}.pt'
+            if prefix == 'static':
+                best_model_path = (
+                    f'saved_models/original_paper_static/transfer/{adapt_mode}/'
+                    f'transfer_static_{adapt_mode}_best_{target_subset}.pt'
+                )
+            else:
+                best_model_path = f'saved_models/transfer_{prefix}_{adapt_mode}_best_{target_subset}.pt'
+            os.makedirs(os.path.dirname(best_model_path), exist_ok=True)
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'best_tgt_val_loss': best_tgt_val_loss,
@@ -486,7 +493,7 @@ def build_and_load_model(source_subset, device, resume, pretrain_path, preset='s
     if not resume:
         if not os.path.exists(pretrain_path):
             # 尝试从 ablation 模型复制
-            alt_path = 'saved_models/ablation_无_Transformer.pt'
+            alt_path = 'saved_models/original_paper_static/ablation/ablation_无_Transformer.pt'
             if os.path.exists(alt_path):
                 print(f"\n⚠️  未找到 {pretrain_path}")
                 print(f"  💡 找到消融实验模型 {alt_path}，将复制作为预训练权重")
@@ -526,9 +533,18 @@ def train_single_target(source_subset, target_subset, device, resume=False,
 
     # 每个目标域、每种适配模式使用独立的 checkpoint
     prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
-    checkpoint_path = f'saved_models/transfer_{prefix}_{adapt_mode}_checkpoint_{target_subset}.pt'
     if preset == 'static':
-        pretrain_path = f'saved_models/stgnn_static_best_{source_subset}.pt'
+        checkpoint_path = (
+            f'saved_models/original_paper_static/transfer/{adapt_mode}/'
+            f'transfer_static_{adapt_mode}_checkpoint_{target_subset}.pt'
+        )
+    else:
+        checkpoint_path = f'saved_models/transfer_{prefix}_{adapt_mode}_checkpoint_{target_subset}.pt'
+    if preset == 'static':
+        pretrain_path = (
+            'saved_models/original_paper_static/stgnn/'
+            f'stgnn_static_best_{source_subset}.pt'
+        )
     else:
         pretrain_path = f'saved_models/dynatopo_{preset}_best_{source_subset}.pt'
 

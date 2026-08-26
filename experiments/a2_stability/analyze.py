@@ -39,8 +39,8 @@ def summarize(results):
     print("  多 seed 稳定性分析结果")
     print("=" * 70)
 
-    print(f"\n  {'模型':<8} {'种子数':<6} {'test RMSE':<22} {'test NASA':<22} {'val RMSE':<22} {'val NASA':<22}")
-    print("  " + "─" * 88)
+    print(f"\n  {'模型':<8} {'种子数':<6} {'val RMSE':<22} {'val NASA':<22} {'test RMSE':<22} {'test NASA':<22} {'参数量':<12}")
+    print("  " + "─" * 110)
 
     summary = {}
     for preset in PRESETS:
@@ -50,21 +50,23 @@ def summarize(results):
             print(f"  {preset:<8} {'0':<6} 无数据")
             continue
 
-        test_rmses = [d['test_rmse'] for d in seeds_data.values()]
-        test_nasas = [d['test_nasa_score'] for d in seeds_data.values()]
         val_rmses = [d['val_rmse'] for d in seeds_data.values()]
         val_nasas = [d['val_nasa_score'] for d in seeds_data.values()]
+        test_rmses = [d['test_rmse'] for d in seeds_data.values()]
+        test_nasas = [d['test_nasa_score'] for d in seeds_data.values()]
+        params = next(iter(seeds_data.values())).get('params', 0)
 
-        rmse_mean, rmse_std = np.mean(test_rmses), np.std(test_rmses)
-        nasa_mean, nasa_std = np.mean(test_nasas), np.std(test_nasas)
         val_mean, val_std = np.mean(val_rmses), np.std(val_rmses)
         val_nasa_mean, val_nasa_std = np.mean(val_nasas), np.std(val_nasas)
+        rmse_mean, rmse_std = np.mean(test_rmses), np.std(test_rmses)
+        nasa_mean, nasa_std = np.mean(test_nasas), np.std(test_nasas)
 
         print(f"  {preset:<8} {n:<6} "
+              f"{val_mean:>6.2f} ± {val_std:<12.2f} "
+              f"{val_nasa_mean:>8.1f} ± {val_nasa_std:<10.1f} "
               f"{rmse_mean:>6.2f} ± {rmse_std:<12.2f} "
               f"{nasa_mean:>7.1f} ± {nasa_std:<10.1f} "
-              f"{val_mean:>6.2f} ± {val_std:<12.2f} "
-              f"{val_nasa_mean:>8.1f} ± {val_nasa_std:<10.1f}")
+              f"{params:>12,}")
 
         summary[preset] = {
             'n': n,

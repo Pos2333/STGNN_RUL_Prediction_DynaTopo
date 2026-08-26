@@ -26,7 +26,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, ROOT)
 
 from configs.config import (
-    BATCH_SIZE, LEARNING_RATE, RANDOM_SEED, MSE_WEIGHT, NASA_SCORE_WEIGHT
+    BATCH_SIZE, LEARNING_RATE, RANDOM_SEED, MSE_WEIGHT, NASA_SCORE_WEIGHT,
+    MSTCN_NUM_CHANNELS, MSTCN_KERNEL_SIZES, MSTCN_DROPOUT,
+    GAT_HIDDEN_DIM, GAT_HEADS, GAT_DROPOUT,
+    TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
+    FC_HIDDEN_DIM
 )
 from configs.dynatopo_config import get_experiment_config
 from core_models.stgnn_static import STGNN_Static
@@ -76,7 +80,7 @@ def load_test(subset='FD001'):
     data = np.load(os.path.join(ROOT, f'data/processed/{subset}_test.npz'))
     X_test = torch.tensor(data['X'], dtype=torch.float32)
     y_test = data['y']
-    ruls = data.get('rul_true', y_test)
+    ruls = data.get('true_rul', y_test)
     graph = torch.load(os.path.join(ROOT, f'data/processed/{subset}_train_graph.pt'))
     edge_index = graph['edge_index']
     return X_test, y_test, ruls, edge_index
@@ -97,8 +101,8 @@ def train_one_epoch(model, loader, loss_fn, optimizer, edge_index, device):
         # 梯度裁剪，防止梯度爆炸（与 train_basic_static.py 保持一致）
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        total_loss += loss.item() * X_batch.size(0)
-    return total_loss / len(loader.dataset)
+        total_loss += loss.item()
+    return total_loss / len(loader)
 
 
 @torch.no_grad()
@@ -110,10 +114,10 @@ def validate(model, loader, loss_fn, edge_index, device):
         X_batch, y_batch = X_batch.to(device), y_batch.to(device)
         pred = model(X_batch, edge_index.to(device))
         loss = loss_fn(pred, y_batch)
-        total_loss += loss.item() * X_batch.size(0)
+        total_loss += loss.item()
         all_preds.append(pred.cpu())
         all_labels.append(y_batch.cpu())
-    return (total_loss / len(loader.dataset),
+    return (total_loss / len(loader),
             torch.cat(all_preds), torch.cat(all_labels))
 
 
@@ -154,7 +158,19 @@ def main():
     if args.preset == 'static':
         # 静态基线：使用 STGNN_Static（与主线 train_basic_static.py 一致）
         model = STGNN_Static(
-            num_sensors=14, num_op_settings=3, use_transformer=False
+            num_sensors=14, num_op_settings=3,
+            mstcn_channels=MSTCN_NUM_CHANNELS,
+            mstcn_kernels=MSTCN_KERNEL_SIZES,
+            mstcn_dropout=MSTCN_DROPOUT,
+            gat_hidden=GAT_HIDDEN_DIM,
+            gat_heads=GAT_HEADS,
+            gat_dropout=GAT_DROPOUT,
+            trans_d_model=TRANSFORMER_D_MODEL,
+            trans_nhead=TRANSFORMER_NHEAD,
+            trans_num_layers=TRANSFORMER_NUM_LAYERS,
+            trans_dropout=TRANSFORMER_DROPOUT,
+            use_transformer=False,
+            fc_hidden=FC_HIDDEN_DIM
         ).to(device)
     else:
         # 双图模型：使用 STGNN_DynaTopo（2×2 消融矩阵）

@@ -18,7 +18,11 @@ from torch.utils.data import TensorDataset, DataLoader
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from configs.config import (
-    WINDOW_SIZE, NUM_FEATURES, BATCH_SIZE, RANDOM_SEED
+    WINDOW_SIZE, NUM_FEATURES, BATCH_SIZE, RANDOM_SEED,
+    MSTCN_NUM_CHANNELS, MSTCN_KERNEL_SIZES, MSTCN_DROPOUT,
+    GAT_HIDDEN_DIM, GAT_HEADS, GAT_DROPOUT,
+    TRANSFORMER_D_MODEL, TRANSFORMER_NHEAD, TRANSFORMER_NUM_LAYERS, TRANSFORMER_DROPOUT,
+    FC_HIDDEN_DIM
 )
 from configs.dynatopo_config import get_experiment_config, EXPERIMENT_MATRIX
 from core_models.stgnn_static import STGNN_Static
@@ -40,7 +44,7 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
     test_data = np.load(test_path)
     X_test = test_data['X']
     y_test = test_data['y']
-    ruls = test_data.get('rul_true', y_test)
+    ruls = test_data.get('true_rul', y_test)
 
     graph = torch.load(graph_path)
     edge_index = graph['edge_index']
@@ -102,7 +106,7 @@ def main():
     # ================================================================
     # 1. 静态基线
     # ================================================================
-    model_path = 'saved_models/stgnn_static_best_FD001.pt'
+    model_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
     log_path = find_latest_log('stgnn_static_FD001_*.json')
     val_info = read_val_metrics_from_log(log_path) if log_path else {}
 
@@ -110,7 +114,21 @@ def main():
         print(f"{'─'*50}")
         print(f"  🔍 静态基线 (STGNN_Static)")
 
-        model = STGNN_Static(use_transformer=False).to(device)
+        model = STGNN_Static(
+            num_sensors=14, num_op_settings=3,
+            mstcn_channels=MSTCN_NUM_CHANNELS,
+            mstcn_kernels=MSTCN_KERNEL_SIZES,
+            mstcn_dropout=MSTCN_DROPOUT,
+            gat_hidden=GAT_HIDDEN_DIM,
+            gat_heads=GAT_HEADS,
+            gat_dropout=GAT_DROPOUT,
+            trans_d_model=TRANSFORMER_D_MODEL,
+            trans_nhead=TRANSFORMER_NHEAD,
+            trans_num_layers=TRANSFORMER_NUM_LAYERS,
+            trans_dropout=TRANSFORMER_DROPOUT,
+            use_transformer=False,
+            fc_hidden=FC_HIDDEN_DIM
+        ).to(device)
         ckpt = torch.load(model_path, map_location=device)
         model.load_state_dict(ckpt['model_state_dict'])
         preds = evaluate_model(model, X_test, edge_index, device)
@@ -159,23 +177,21 @@ def main():
     # 3. 综合对比表
     # ================================================================
     print(f"\n{'='*80}")
-    print("  📋 综合对比：验证集指标 + 测试集指标")
+    print("  📋 综合对比：val RMSE / val NASA / test RMSE / test NASA / 参数量")
     print(f"{'='*80}")
 
-    hdr = (f"  {'模型':<10} {'val loss':>9} {'val RMSE':>9} {'val NASA':>10} "
-           f"{'test RMSE':>9} {'test NASA':>10} {'参数':>9}")
+    hdr = (f"  {'模型':<10} {'val RMSE':>10} {'val NASA':>10} "
+           f"{'test RMSE':>10} {'test NASA':>10} {'参数量':>10}")
     print(hdr)
-    print(f"  {'─'*72}")
+    print(f"  {'─'*64}")
 
     for name, r in results.items():
-        vloss = r.get('val_loss', '—')
         vrmse = r.get('val_rmse', '—')
         vnasa = r.get('val_nasa_score', '—')
-        vloss_str = f"{vloss:.2f}" if isinstance(vloss, (int, float)) else str(vloss)
         vrmse_str = f"{vrmse:.2f}" if isinstance(vrmse, (int, float)) else str(vrmse)
         vnasa_str = f"{vnasa:.1f}" if isinstance(vnasa, (int, float)) else str(vnasa)
-        print(f"  {name:<10} {vloss_str:>9} {vrmse_str:>9} {vnasa_str:>10} "
-              f"{r['test_rmse']:>9.2f} {r['test_nasa']:>10.1f} {r['params']:>9,}")
+        print(f"  {name:<10} {vrmse_str:>10} {vnasa_str:>10} "
+              f"{r['test_rmse']:>10.2f} {r['test_nasa']:>10.1f} {r['params']:>10,}")
 
     # 保存
     os.makedirs('logs/dynatopo', exist_ok=True)

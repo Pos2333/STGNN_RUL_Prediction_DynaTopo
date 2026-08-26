@@ -56,7 +56,8 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
     返回:
         test_loader: 测试 DataLoader
         edge_index:  图边索引（STGNN 需要）
-        y_true_all:  全部真实标签（numpy，用于最后统一评估）
+        y_test:      截断 RUL 标签（numpy，用于 RMSE）
+        true_rul:    原始 RUL 真值（numpy，用于 NASA Score）
     """
     test_path = os.path.join(processed_dir, f'{subset}_test.npz')
     graph_path = os.path.join(processed_dir, f'{subset}_train_graph.pt')
@@ -69,7 +70,8 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
     # 加载数据
     test_data = np.load(test_path)
     X_test = test_data['X']  # [n_samples, W, N]
-    y_test = test_data['y']  # [n_samples]
+    y_test = test_data['y']  # [n_samples] — 截断 RUL（max=125），用于 RMSE
+    true_rul = test_data.get('true_rul', y_test)  # 原始 RUL 真值，用于 NASA Score
 
     # 加载图结构
     graph = torch.load(graph_path)
@@ -89,18 +91,18 @@ def load_test_data(subset='FD001', processed_dir='data/processed'):
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE,
                              shuffle=False, drop_last=False)
 
-    return test_loader, edge_index, y_test
+    return test_loader, edge_index, y_test, true_rul
 
 
 # ============================================================
 # 2. 各模型构建函数（超参数与对应训练脚本完全一致，保证公平对比）
 # ============================================================
 def build_lstm(device):
-    """BasicLSTM —— 与 train_basic_lstm.py 一致"""
+    """Parameter-matched LSTM —— 参数量与 STGNN 接近（133,501 vs 136,229）"""
     return BasicLSTM(
         input_dim=NUM_FEATURES,
-        hidden_dim=128,
-        num_layers=3,
+        hidden_dim=100,
+        num_layers=2,
         dropout=0.3
     ).to(device)
 
@@ -160,7 +162,7 @@ def build_stgnn(device):
 # 3. 通用模型评估函数（所有模型共用一套推理流程）
 # ============================================================
 def evaluate_model(test_loader, device, model, model_name, model_path,
-                   edge_index=None):
+                   edge_index=None, true_rul=None):
     """
     加载指定模型权重并在测试集上预测，统一计算指标
 
@@ -171,9 +173,10 @@ def evaluate_model(test_loader, device, model, model_name, model_path,
         model_name:  模型显示名称（用于日志输出）
         model_path:  权重文件路径
         edge_index:  图边索引（仅 STGNN 需要，其余模型传 None）
+        true_rul:    原始 RUL 真值（numpy），用于 NASA Score；若为 None 则用截断标签
 
     返回:
-        rmse, score, y_pred_all, y_true_all, num_params
+        rmse, score, y_pred_all, y_true_all, num_params, val_rmse, val_nasa
     """
     print(f"\n{'='*60}")
     print(f"  🔍 评估 {model_name}")
@@ -184,6 +187,8 @@ def evaluate_model(test_loader, device, model, model_name, model_path,
         raise FileNotFoundError(f"找不到 {model_name} 模型: {model_path}")
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
+    val_rmse = checkpoint.get('best_val_rmse', None)
+    val_nasa = checkpoint.get('best_val_nasa_score', None)
     print(f"  已加载权重 (Epoch {checkpoint['epoch']+1}, "
           f"Val Loss: {checkpoint['best_loss']:.4f})")
 
@@ -210,12 +215,13 @@ def evaluate_model(test_loader, device, model, model_name, model_path,
     y_true_all = np.concatenate(y_true_all, axis=0)
 
     rmse = compute_rmse(y_pred_all, y_true_all)
-    score = compute_nasa_score(y_pred_all, y_true_all)
+    # NASA Score 使用原始 RUL 真值（官方要求），而非截断标签
+    score = compute_nasa_score(y_pred_all, true_rul if true_rul is not None else y_true_all)
 
     print(f"  📊 RMSE: {rmse:.2f}")
     print(f"  📊 NASA Score: {score:.2f}")
 
-    return rmse, score, y_pred_all, y_true_all, num_params
+    return rmse, score, y_pred_all, y_true_all, num_params, val_rmse, val_nasa
 
 
 # ============================================================
@@ -226,54 +232,58 @@ def print_comparison(results_list, baseline_name='LSTM', subset='FD001'):
     打印多模型对比表格
 
     参数:
-        results_list:  元素为 (model_name, rmse, score, num_params) 的列表
+        results_list:  元素为 (model_name, test_rmse, test_nasa, num_params, val_rmse, val_nasa)
         baseline_name: 基准模型名（用于计算相对提升幅度）
         subset:        数据集名称
 
     返回:
         各模型指标字典（用于保存）
     """
-    print(f"\n{'='*75}")
+    print(f"\n{'='*90}")
     print(f"  📊 {subset} 单工况预测性能对比")
-    print(f"{'='*75}")
-    print(f"  {'模型':<16}{'RMSE ↓':>10}{'NASA Score ↓':>14}{'参数量':>12}")
-    print(f"  {'-'*75}")
+    print(f"{'='*90}")
+    print(f"  {'模型':<14} {'val RMSE':>10} {'val NASA':>10} {'test RMSE':>10} {'test NASA':>10} {'参数量':>12}")
+    print(f"  {'-'*80}")
 
     # 记录 LSTM 基准指标
     baseline_rmse = baseline_score = None
-    for name, rmse, score, params in results_list:
-        print(f"  {name:<16}{rmse:>10.2f}{score:>14.2f}{params:>12,}")
+    for name, test_rmse, test_nasa, params, vrmse, vnasa in results_list:
+        vrmse_str = f"{vrmse:.2f}" if vrmse is not None else "—"
+        vnasa_str = f"{vnasa:.1f}" if vnasa is not None else "—"
+        print(f"  {name:<14} {vrmse_str:>10} {vnasa_str:>10} {test_rmse:>10.2f} {test_nasa:>10.1f} {params:>12,}")
         if name == baseline_name:
-            baseline_rmse, baseline_score = rmse, score
+            baseline_rmse, baseline_score = test_rmse, test_nasa
 
     # 找出 RMSE 最优模型
-    best_name, best_rmse, best_score, _ = min(results_list, key=lambda r: r[1])
+    best_name, best_rmse, best_score, *_ = min(results_list, key=lambda r: r[1])
 
-    print(f"  {'-'*75}")
-    print(f"  🏆 RMSE 最优模型: {best_name}  (RMSE={best_rmse:.2f}, "
-          f"NASA Score={best_score:.2f})")
+    print(f"  {'-'*80}")
+    print(f"  🏆 RMSE 最优模型: {best_name}  (test RMSE={best_rmse:.2f}, "
+          f"test NASA={best_score:.2f})")
 
     # 相对 LSTM 基准的提升幅度
     if baseline_rmse is not None:
-        for name, rmse, score, params in results_list:
+        for name, test_rmse, test_nasa, params, vrmse, vnasa in results_list:
             if name == baseline_name:
                 continue
-            rmse_improve = (baseline_rmse - rmse) / baseline_rmse * 100
-            score_improve = (baseline_score - score) / baseline_score * 100
+            rmse_improve = (baseline_rmse - test_rmse) / baseline_rmse * 100
+            score_improve = (baseline_score - test_nasa) / baseline_score * 100
             rmse_word = "✅ 降低" if rmse_improve >= 0 else "⚠️ 升高"
             score_word = "✅ 降低" if score_improve >= 0 else "⚠️ 升高"
             print(f"  · {name:<10} vs {baseline_name}: "
                   f"RMSE {rmse_word} {abs(rmse_improve):.1f}% | "
                   f"NASA Score {score_word} {abs(score_improve):.1f}%")
-    print(f"{'='*75}")
+    print(f"{'='*90}")
 
     return {
         name: {
-            'rmse': float(rmse),
-            'score': float(score),
+            'val_rmse': float(vrmse) if vrmse is not None else None,
+            'val_nasa_score': float(vnasa) if vnasa is not None else None,
+            'test_rmse': float(test_rmse),
+            'test_nasa_score': float(test_nasa),
             'params': int(params)
         }
-        for name, rmse, score, params in results_list
+        for name, test_rmse, test_nasa, params, vrmse, vnasa in results_list
     }
 
 
@@ -305,31 +315,29 @@ if __name__ == '__main__':
     print(f"\n🖥️  评估设备: {device}")
 
     # ---- 1. 加载测试数据（所有模型共用） ----
-    test_loader, edge_index, y_test = load_test_data(subset='FD001')
+    test_loader, edge_index, y_test, true_rul = load_test_data(subset='FD001')
 
     # ---- 2. 定义评估任务（模型名, 构建函数, 权重路径, edge_index） ----
     tasks = [
-        ('LSTM',       build_lstm,    'saved_models/lstm_best_FD001.pt',         None),
-        ('STGNN',      build_stgnn,   'saved_models/stgnn_static_best_FD001.pt', edge_index),
-        ('GRU',        build_gru,     'saved_models/gru_best_FD001.pt',          None),
-        ('TCN',        build_tcn,     'saved_models/tcn_best_FD001.pt',          None),
-        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/cnn_lstm_best_FD001.pt',    None),
+        ('LSTM', build_lstm, 'saved_models/original_paper_static/baselines/lstm_pmatch_best_FD001.pt', None),
+        ('STGNN',      build_stgnn,   'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt', edge_index),
+        ('GRU',        build_gru,     'saved_models/original_paper_static/baselines/gru_best_FD001.pt',          None),
+        ('TCN',        build_tcn,     'saved_models/original_paper_static/baselines/tcn_best_FD001.pt',          None),
+        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/original_paper_static/baselines/cnn_lstm_best_FD001.pt',    None),
     ]
 
     # ---- 3. 依次评估各模型 ----
     results_list = []
     for model_name, builder, model_path, edge in tasks:
         model = builder(device)
-        rmse, score, _, _, num_params = evaluate_model(
+        rmse, score, _, _, num_params, val_rmse, val_nasa = evaluate_model(
             test_loader, device, model, model_name, model_path,
-            edge_index=edge
+            edge_index=edge, true_rul=true_rul
         )
-        results_list.append((model_name, rmse, score, num_params))
+        results_list.append((model_name, rmse, score, num_params, val_rmse, val_nasa))
 
     # ---- 4. 打印对比表格 ----
-    comparison = print_comparison(results_list)
+    comparison = print_comparison(results_list, baseline_name='LSTM')
 
     # ---- 5. 保存结果 ----
     save_results(comparison)
-
-    print(f"\n🎉 TODO 4 完成！")

@@ -372,21 +372,21 @@ class CMAPSSDataProcessor:
             y_list.append(true_rul[idx])
 
         X = np.stack(X_list, axis=0)  # [n_engines, WINDOW_SIZE, NUM_FEATURES]
-        y = np.array(y_list)          # [n_engines]
+        y_list_arr = np.array(y_list)  # [n_engines] — 原始 RUL 真值（已过滤掉短发动机）
 
         print(f"  ✅ 测试集窗口构造完成：{len(X)} 个发动机样本")
-        print(f"     窗口形状: {X.shape}, 标签形状: {y.shape}")
+        print(f"     窗口形状: {X.shape}, 标签形状: {y_list_arr.shape}")
 
-        # Step 6: RUL 标签截断（与训练一致）
-        y = self.clip_rul_labels(y)
+        # Step 6: RUL 标签截断（与训练一致），保留原始真值用于 NASA Score
+        y = self.clip_rul_labels(y_list_arr.copy())
 
         # 保存
         if save:
             save_path = os.path.join(self.processed_dir, f'{subset}_test')
-            np.savez(save_path, X=X, y=y, true_rul=true_rul)
+            np.savez(save_path, X=X, y=y, true_rul=y_list_arr)
             print(f"  💾 已保存到 {save_path}.npz")
 
-        return X, y, true_rul
+        return X, y, y_list_arr
 
 
 # ============================================================

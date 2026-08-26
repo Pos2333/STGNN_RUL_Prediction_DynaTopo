@@ -17,7 +17,7 @@
 # 输出:
 #   - 终端打印 RMSE / NASA Score 对比表格
 #   - 结果保存到 logs/ablation_v2_*.json
-#   - 模型保存到 saved_models/ablation_v2_*.pt
+#   - 模型保存到 saved_models/original_paper_static/ablation/ablation_v2_*.pt
 #
 # 用法:
 #   python scripts/ablation_study_v2.py
@@ -79,7 +79,7 @@ ABLATION_CONFIGS = {
 # 预训练模型映射：这部分变体直接复用已有模型，无需从零训练
 # （各脚本共用 RANDOM_SEED=42 + val_ratio=0.2，训练/验证集划分完全一致）
 PRETRAINED_PATHS = {
-    "MSTCN + GAT (新基线)": "saved_models/stgnn_static_best_FD001.pt",
+    "MSTCN + GAT (新基线)": "saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt",
     "完整 STGNN (原始)":    "saved_models/stgnn_best_FD001.pt",
 }
 
@@ -240,7 +240,7 @@ def train_ablation_model(name, cfg, train_loader, val_loader, edge_index, device
     print(f"{'='*60}")
 
     # ---- 构建模型 ----
-    model = STGNN(
+    model = STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS, mstcn_kernels=MSTCN_KERNEL_SIZES,
         mstcn_dropout=MSTCN_DROPOUT,
@@ -319,7 +319,7 @@ def train_ablation_model(name, cfg, train_loader, val_loader, edge_index, device
 # ============================================================
 def build_model_from_cfg(cfg, device):
     """仅构建模型结构，不训练"""
-    model = STGNN(
+    model = STGNN_Static(
         num_sensors=14, num_op_settings=3,
         mstcn_channels=MSTCN_NUM_CHANNELS, mstcn_kernels=MSTCN_KERNEL_SIZES,
         mstcn_dropout=MSTCN_DROPOUT,
@@ -351,6 +351,7 @@ def main():
 
     for name, cfg in ABLATION_CONFIGS.items():
         pretrain_path = PRETRAINED_PATHS.get(name)
+        val_rmse = val_nasa = None  # 仅预训练模型能获取，训练变体则为 None
 
         if pretrain_path and os.path.exists(pretrain_path):
             # ---- 直接加载预训练模型，跳过训练 ----
@@ -365,6 +366,8 @@ def main():
             model = build_model_from_cfg(cfg, DEVICE)
             ckpt = torch.load(pretrain_path, map_location=DEVICE, weights_only=False)
             model.load_state_dict(ckpt['model_state_dict'])
+            val_rmse = ckpt.get('best_val_rmse', None)
+            val_nasa = ckpt.get('best_val_nasa_score', None)
             print(f"  参数量: {sum(p.numel() for p in model.parameters()):,}")
             print(f"  已加载权重 (Epoch {ckpt.get('epoch', '?')}, "
                   f"Val Loss: {ckpt.get('best_loss', ckpt.get('best_tgt_val_loss', '?'))})")
@@ -389,8 +392,10 @@ def main():
         rmse, score = evaluate_metrics(y_pred, y_true, print_result=False)
 
         results[name] = {
-            'rmse': round(float(rmse), 4),
-            'score': round(float(score), 4),
+            'val_rmse': val_rmse,
+            'val_nasa': val_nasa,
+            'test_rmse': round(float(rmse), 4),
+            'test_nasa': round(float(score), 4),
             'params': sum(p.numel() for p in model.parameters()),
             'cfg': cfg,
         }
@@ -398,7 +403,10 @@ def main():
         # ---- 保存模型（预训练复用的跳过，避免冗余） ----
         if name not in PRETRAINED_PATHS:
             safe_name = name.replace(' ', '_').replace('(', '').replace(')', '')
-            model_path = f"saved_models/ablation_v2_{safe_name}.pt"
+            model_path = (
+                f"saved_models/original_paper_static/ablation/"
+                f"ablation_v2_{safe_name}.pt"
+            )
             torch.save(model.state_dict(), model_path)
             print(f"  💾 模型已保存 → {model_path}")
         print(f"     📊 {name}: RMSE={rmse:.4f}, Score={score:.4f}")
@@ -408,28 +416,33 @@ def main():
     # ============================================================
     # 新基线 = "MSTCN + GAT (新基线)"
     base_name = "MSTCN + GAT (新基线)"
-    base_rmse = results[base_name]['rmse']
-    base_score = results[base_name]['score']
+    base_rmse = results[base_name]['test_rmse']
+    base_score = results[base_name]['test_nasa']
 
-    print(f"\n{'='*75}")
+    print(f"\n{'='*90}")
     print(f"  📊 消融实验 v2 最终结果对比")
-    print(f"  新基线: {base_name}  |  RMSE={base_rmse:.4f}, Score={base_score:.4f}")
-    print(f"{'='*75}")
-    print(f"  {'模型变体':<30s} {'RMSE':>10s} {'NASA Score':>14s} {'参数量':>12s}")
-    print(f"  {'-'*66}")
+    print(f"  新基线: {base_name}  |  test RMSE={base_rmse:.4f}, test NASA={base_score:.4f}")
+    print(f"{'='*90}")
+    print(f"  {'模型变体':<30} {'val RMSE':>10} {'val NASA':>10} {'test RMSE':>10} {'test NASA':>10} {'参数量':>12}")
+    print(f"  {'-'*84}")
 
     for name, r in results.items():
         marker = " ← 基线" if name == base_name else ""
-        print(f"  {name:<30s} {r['rmse']:>10.4f} {r['score']:>14.4f} {r['params']:>12,}{marker}")
+        vrmse = r.get('val_rmse')
+        vnasa = r.get('val_nasa')
+        vrmse_str = f"{vrmse:.2f}" if vrmse is not None else "—"
+        vnasa_str = f"{vnasa:.1f}" if vnasa is not None else "—"
+        print(f"  {name:<30} {vrmse_str:>10} {vnasa_str:>10} "
+              f"{r['test_rmse']:>10.4f} {r['test_nasa']:>10.4f} {r['params']:>12,}{marker}")
 
     # ---- 相对于新基线的退化分析 ----
     print(f"\n  📈 相对于「{base_name}」的性能退化:")
     for name, r in results.items():
         if name == base_name:
             continue
-        rmse_pct = (r['rmse'] - base_rmse) / base_rmse * 100
-        score_pct = (r['score'] - base_score) / base_score * 100
-        print(f"     {name:<30s}: RMSE {rmse_pct:+.1f}%,  Score {score_pct:+.1f}%")
+        rmse_pct = (r['test_rmse'] - base_rmse) / base_rmse * 100
+        score_pct = (r['test_nasa'] - base_score) / base_score * 100
+        print(f"     {name:<30}: RMSE {rmse_pct:+.1f}%,  Score {score_pct:+.1f}%")
 
     # ---- 2×2 交叉分析（V1-V4） ----
     v2_keys = ["MSTCN + GAT (新基线)", "仅 GAT (无 MSTCN)",
@@ -437,17 +450,15 @@ def main():
     print(f"\n  📐 2×2 交叉分析（MSTCN × GAT）:")
     if all(k in results for k in v2_keys):
         r = {k: results[k] for k in v2_keys}
-        # MSTCN 主效应: (MSTCN+GAT + MSTCN) vs (GAT + 全关)
-        mstcn_on_rmse = (r["MSTCN + GAT (新基线)"]['rmse'] + r["仅 MSTCN (无 GAT)"]['rmse']) / 2
-        mstcn_off_rmse = (r["仅 GAT (无 MSTCN)"]['rmse'] + r["全关 (最简模型)"]['rmse']) / 2
-        # GAT 主效应
-        gat_on_rmse = (r["MSTCN + GAT (新基线)"]['rmse'] + r["仅 GAT (无 MSTCN)"]['rmse']) / 2
-        gat_off_rmse = (r["仅 MSTCN (无 GAT)"]['rmse'] + r["全关 (最简模型)"]['rmse']) / 2
+        mstcn_on_rmse = (r["MSTCN + GAT (新基线)"]['test_rmse'] + r["仅 MSTCN (无 GAT)"]['test_rmse']) / 2
+        mstcn_off_rmse = (r["仅 GAT (无 MSTCN)"]['test_rmse'] + r["全关 (最简模型)"]['test_rmse']) / 2
+        gat_on_rmse = (r["MSTCN + GAT (新基线)"]['test_rmse'] + r["仅 GAT (无 MSTCN)"]['test_rmse']) / 2
+        gat_off_rmse = (r["仅 MSTCN (无 GAT)"]['test_rmse'] + r["全关 (最简模型)"]['test_rmse']) / 2
 
         print(f"     MSTCN 主效应 (RMSE): 启用={mstcn_on_rmse:.2f}, 关闭={mstcn_off_rmse:.2f}, Δ={mstcn_off_rmse - mstcn_on_rmse:+.2f}")
         print(f"     GAT 主效应   (RMSE): 启用={gat_on_rmse:.2f}, 关闭={gat_off_rmse:.2f}, Δ={gat_off_rmse - gat_on_rmse:+.2f}")
 
-    print(f"{'='*75}")
+    print(f"{'='*90}")
 
     # ---- 保存结果到 JSON ----
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -457,8 +468,10 @@ def main():
     json_results = {}
     for name, r in results.items():
         json_results[name] = {
-            'rmse': r['rmse'],
-            'score': r['score'],
+            'val_rmse': r['val_rmse'],
+            'val_nasa': r['val_nasa'],
+            'test_rmse': r['test_rmse'],
+            'test_nasa': r['test_nasa'],
             'params': r['params'],
             'cfg': r['cfg'],
         }

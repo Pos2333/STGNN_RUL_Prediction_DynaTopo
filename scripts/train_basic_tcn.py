@@ -13,8 +13,8 @@
 #   6. 训练完成后保存最佳模型到 saved_models/
 #   7. 记录训练日志到 logs/
 #
-# ⚠️ 注意：所有超参数、数据加载方式、验证集划分方式
-#   与 train_basic_lstm.py / train_basic_gru.py 完全一致，确保公平对比。
+# ⚠️ 注意：数据加载方式与验证集划分方式
+#   与其他时序基线保持一致，确保公平对比。
 # ============================================================
 
 import os
@@ -37,7 +37,7 @@ from configs.config import (
 )
 from core_models.base_models import TCNModel
 from utils.loss_functions import CombinedLoss
-from utils.metrics import evaluate_metrics
+from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
 from utils.data_processor import split_by_unit
 
 # ============================================================
@@ -129,7 +129,7 @@ def load_data(subset='FD001', processed_dir='data/processed', val_ratio=0.2):
 # 2. 保存 checkpoint（用于暂停后恢复训练）
 # ============================================================
 def save_checkpoint(model, optimizer, epoch, best_loss, train_losses, val_losses,
-                    filepath='saved_models/tcn_checkpoint.pt'):
+                    filepath='saved_models/original_paper_static/baselines/tcn_checkpoint.pt'):
     """保存训练状态，支持断点续训"""
     torch.save({
         'epoch': epoch,
@@ -145,7 +145,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss, train_losses, val_losses
 # ============================================================
 # 3. 加载 checkpoint（恢复训练）
 # ============================================================
-def load_checkpoint(model, optimizer, filepath='saved_models/tcn_checkpoint.pt'):
+def load_checkpoint(model, optimizer, filepath='saved_models/original_paper_static/baselines/tcn_checkpoint.pt'):
     """从 checkpoint 恢复训练状态"""
     if os.path.exists(filepath):
         checkpoint = torch.load(filepath)
@@ -231,7 +231,7 @@ def validate(model, dataloader, loss_fn, device):
 # ============================================================
 def train(model, train_loader, val_loader, loss_fn, optimizer, device,
           num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
-          resume=False, checkpoint_path='saved_models/tcn_checkpoint.pt'):
+          resume=False, checkpoint_path='saved_models/original_paper_static/baselines/tcn_checkpoint.pt'):
     """TCN 模型主训练循环"""
     # ---- 尝试恢复训练 ----
     if resume:
@@ -245,6 +245,7 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         val_losses = []
 
     patience_counter = 0
+    val_rmses, val_nasa_scores = [], []
 
     print(f"\n{'='*60}")
     print(f"  🚀 开始训练 TCN 基线模型")
@@ -263,6 +264,10 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         # ---- 记录 ----
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        val_rmse = compute_rmse(y_pred, y_true)
+        val_nasa = compute_nasa_score(y_pred, y_true)
+        val_rmses.append(float(val_rmse))
+        val_nasa_scores.append(float(val_nasa))
 
         epoch_time = time.time() - epoch_start
 
@@ -281,13 +286,17 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         # ---- 保存最佳模型 ----
         if val_loss < best_loss:
             best_loss = val_loss
+            best_rmse = val_rmse
+            best_nasa = val_nasa
             patience_counter = 0
 
-            best_model_path = 'saved_models/tcn_best_FD001.pt'
+            best_model_path = 'saved_models/original_paper_static/baselines/tcn_best_FD001.pt'
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
                 'epoch': epoch,
+                'best_val_rmse': float(best_rmse),
+                'best_val_nasa_score': float(best_nasa),
             }, best_model_path)
             print(f"  ⭐ 新的最佳模型！Val Loss: {best_loss:.4f} → {best_model_path}")
         else:
@@ -306,23 +315,28 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
     print(f"  ✅ 训练完成！最佳验证损失: {best_loss:.4f}")
     print(f"{'='*60}")
 
-    return model, train_losses, val_losses
+    return model, train_losses, val_losses, val_rmses, val_nasa_scores
 
 
 # ============================================================
 # 7. 保存训练日志
 # ============================================================
-def save_training_log(train_losses, val_losses, subset='FD001'):
+def save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001'):
     """将训练过程的损失记录保存为 JSON 文件"""
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = f'logs/tcn_{subset}_{timestamp}.json'
+    best_idx = val_losses.index(min(val_losses)) if val_losses else 0
 
     log_data = {
         'model': 'TCNModel',
         'subset': subset,
         'train_losses': train_losses,
         'val_losses': val_losses,
+        'val_rmses': val_rmses,
+        'val_nasa_scores': val_nasa_scores,
         'best_val_loss': min(val_losses) if val_losses else None,
+        'best_val_rmse': val_rmses[best_idx] if val_rmses else None,
+        'best_val_nasa_score': val_nasa_scores[best_idx] if val_nasa_scores else None,
         'num_epochs': len(train_losses),
     }
 
@@ -391,7 +405,7 @@ if __name__ == '__main__':
 
     # ---- 4. 训练 ----
     try:
-        model, train_losses, val_losses = train(
+        model, train_losses, val_losses, val_rmses, val_nasa_scores = train(
             model, train_loader, val_loader, loss_fn, optimizer, device,
             num_epochs=NUM_EPOCHS,
             patience=EARLY_STOP_PATIENCE,
@@ -403,14 +417,14 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # ---- 5. 保存训练日志 ----
-    save_training_log(train_losses, val_losses, subset='FD001')
+    save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001')
 
     # ---- 6. 加载最佳模型做最终评估 ----
     print(f"\n{'='*60}")
     print(f"  加载最佳模型进行最终评估...")
     print(f"{'='*60}")
 
-    best_checkpoint = torch.load('saved_models/tcn_best_FD001.pt')
+    best_checkpoint = torch.load('saved_models/original_paper_static/baselines/tcn_best_FD001.pt')
     model.load_state_dict(best_checkpoint['model_state_dict'])
     print(f"  已加载最佳模型 (Epoch {best_checkpoint['epoch']+1}, Val Loss: {best_checkpoint['best_loss']:.4f})")
 

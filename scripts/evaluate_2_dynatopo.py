@@ -49,7 +49,7 @@ def load_target_test(target, processed_dir='data/processed'):
     test_data = np.load(test_path)
     X_test = torch.tensor(test_data['X'], dtype=torch.float32)
     y_test = test_data['y']
-    ruls = test_data.get('rul_true', y_test)
+    ruls = test_data.get('true_rul', y_test)
 
     graph = torch.load(graph_path, map_location='cpu', weights_only=False)
     edge_index = graph['edge_index']
@@ -92,6 +92,14 @@ def evaluate(model, X_test, edge_index, device):
     return np.concatenate(preds)
 
 
+def read_val_from_ckpt(ckpt):
+    """从 checkpoint 中提取 val_rmse / val_nasa"""
+    return {
+        'val_rmse': ckpt.get('best_val_rmse', None) if isinstance(ckpt, dict) else None,
+        'val_nasa': ckpt.get('best_val_nasa_score', None) if isinstance(ckpt, dict) else None,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--preset', type=str, default='A1B1',
@@ -117,7 +125,7 @@ def main():
         prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
         # FD001 预训练模型路径
         if preset == 'static':
-            pretrain_path = 'saved_models/stgnn_static_best_FD001.pt'
+            pretrain_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
         else:
             pretrain_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
 
@@ -130,10 +138,12 @@ def main():
 
             # ---- 无迁移：FD001 预训练模型直接测目标域 ----
             no_transfer_rmse = no_transfer_score = None
+            no_transfer_val = {}
             if os.path.exists(pretrain_path):
                 model = build_model(preset, device)
                 ckpt = torch.load(pretrain_path, map_location=device, weights_only=False)
                 model.load_state_dict(ckpt['model_state_dict'])
+                no_transfer_val = read_val_from_ckpt(ckpt)
                 preds = evaluate(model, X_test, edge_index, device)
                 no_transfer_rmse = float(compute_rmse(preds, y_test))
                 no_transfer_score = float(compute_nasa_score(preds, ruls))
@@ -143,12 +153,19 @@ def main():
                 print(f"\n  [{preset}] 无迁移 {target}: ⚠️ 缺少预训练模型 {pretrain_path}")
 
             # ---- 半监督 LMMD：迁移模型 ----
-            transfer_path = f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+            transfer_path = (
+                f'saved_models/original_paper_static/transfer/lmmd_semi/'
+                f'transfer_static_lmmd_semi_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+            )
             semi_rmse = semi_score = None
+            semi_val = {}
             if os.path.exists(transfer_path):
                 model = build_model(preset, device)
                 ckpt = torch.load(transfer_path, map_location=device, weights_only=False)
                 model.load_state_dict(ckpt['model_state_dict'])
+                semi_val = read_val_from_ckpt(ckpt)
                 preds = evaluate(model, X_test, edge_index, device)
                 semi_rmse = float(compute_rmse(preds, y_test))
                 semi_score = float(compute_nasa_score(preds, ruls))
@@ -158,12 +175,19 @@ def main():
                 print(f"  [{preset}] 半监督LMMD {target}: ⚠️ 缺少迁移模型 {transfer_path}")
 
             # ---- 无自适应（none）：目标域有监督微调，作为域自适应基线下限 ----
-            none_path = f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+            none_path = (
+                f'saved_models/original_paper_static/transfer/none/'
+                f'transfer_static_none_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+            )
             none_rmse = none_score = None
+            none_val = {}
             if os.path.exists(none_path):
                 model = build_model(preset, device)
                 ckpt = torch.load(none_path, map_location=device, weights_only=False)
                 model.load_state_dict(ckpt['model_state_dict'])
+                none_val = read_val_from_ckpt(ckpt)
                 preds = evaluate(model, X_test, edge_index, device)
                 none_rmse = float(compute_rmse(preds, y_test))
                 none_score = float(compute_nasa_score(preds, ruls))
@@ -173,12 +197,19 @@ def main():
                 print(f"  [{preset}] 无自适应none {target}: ⚠️ 缺少迁移模型 {none_path}")
 
             # ---- 无监督域自适应（lmmd_uda）：目标域无标签，单向 LMMD ----
-            uda_path = f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+            uda_path = (
+                f'saved_models/original_paper_static/transfer/lmmd_uda/'
+                f'transfer_static_lmmd_uda_best_{target}.pt'
+                if preset == 'static' else
+                f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+            )
             uda_rmse = uda_score = None
+            uda_val = {}
             if os.path.exists(uda_path):
                 model = build_model(preset, device)
                 ckpt = torch.load(uda_path, map_location=device, weights_only=False)
                 model.load_state_dict(ckpt['model_state_dict'])
+                uda_val = read_val_from_ckpt(ckpt)
                 preds = evaluate(model, X_test, edge_index, device)
                 uda_rmse = float(compute_rmse(preds, y_test))
                 uda_score = float(compute_nasa_score(preds, ruls))
@@ -187,35 +218,53 @@ def main():
             else:
                 print(f"  [{preset}] 无监督UDA {target}: ⚠️ 缺少迁移模型 {uda_path}")
 
+            params = sum(p.numel() for p in build_model(preset, device).parameters())
             all_results[f'{preset}_{target}'] = {
                 'preset': preset, 'target': target,
+                'params': params,
                 'no_transfer_rmse': no_transfer_rmse,
                 'no_transfer_score': no_transfer_score,
+                'no_transfer_val_rmse': no_transfer_val.get('val_rmse'),
+                'no_transfer_val_nasa': no_transfer_val.get('val_nasa'),
                 'semi_rmse': semi_rmse,
                 'semi_score': semi_score,
+                'semi_val_rmse': semi_val.get('val_rmse'),
+                'semi_val_nasa': semi_val.get('val_nasa'),
                 'none_rmse': none_rmse,
                 'none_score': none_score,
+                'none_val_rmse': none_val.get('val_rmse'),
+                'none_val_nasa': none_val.get('val_nasa'),
                 'uda_rmse': uda_rmse,
                 'uda_score': uda_score,
+                'uda_val_rmse': uda_val.get('val_rmse'),
+                'uda_val_nasa': uda_val.get('val_nasa'),
             }
 
-    # ---- 汇总表格（每个模型/目标域打印 RMSE 与 NASA 两行）----
-    print(f"\n{'='*80}")
+    # ---- 汇总表格（每个模型/目标域/策略一行，统一 5 列）----
+    print(f"\n{'='*120}")
     print(f"  📋 跨工况评估汇总")
-    print(f"{'='*80}")
-    print(f"  {'模型':<8} {'目标':<7} {'指标':<6} {'无迁移':>12} {'LMMD-semi':>12} {'none(FT)':>12} {'UDA':>12}")
-    print(f"  {'-'*80}")
+    print(f"{'='*120}")
+    print(f"  {'模型':<8} {'目标':<7} {'方法':<14} {'val RMSE':>10} {'val NASA':>10} {'test RMSE':>10} {'test NASA':>10} {'参数量':>10}")
+    print(f"  {'-'*100}")
+    strategies = [
+        ('no_transfer', '无迁移'),
+        ('semi', 'LMMD-semi'),
+        ('none', 'none(FT)'),
+        ('uda', 'UDA'),
+    ]
+    def fmt(v, nd=2):
+        return f"{v:.{nd}f}" if v is not None else "—"
     for k, r in all_results.items():
-        def fmt(v, nd=2):
-            return f"{v:.{nd}f}" if v is not None else "—"
-        # RMSE 行
-        print(f"  {r['preset']:<8} {r['target']:<7} {'RMSE':<6} "
-              f"{fmt(r['no_transfer_rmse']):>12} {fmt(r['semi_rmse']):>12} {fmt(r['none_rmse']):>12} "
-              f"{fmt(r['uda_rmse']):>12}")
-        # NASA Score 行
-        print(f"  {'':<8} {'':<7} {'NASA':<6} "
-              f"{fmt(r['no_transfer_score'], 1):>12} {fmt(r['semi_score'], 1):>12} "
-              f"{fmt(r['none_score'], 1):>12} {fmt(r['uda_score'], 1):>12}")
+        for skey, slabel in strategies:
+            trmse = r[f'{skey}_rmse']
+            tscore = r[f'{skey}_score']
+            if trmse is None and tscore is None:
+                continue
+            vrmse = r.get(f'{skey}_val_rmse')
+            vnasa = r.get(f'{skey}_val_nasa')
+            print(f"  {r['preset']:<8} {r['target']:<7} {slabel:<14} "
+                  f"{fmt(vrmse):>10} {fmt(vnasa, 1):>10} "
+                  f"{fmt(trmse):>10} {fmt(tscore, 1):>10} {r['params']:>10,}")
 
     # 保存
     os.makedirs('logs/dynatopo', exist_ok=True)
