@@ -1,5 +1,5 @@
 # ============================================================
-# scripts/train_basic_cnn_lstm.py —— CNN+LSTM 混合模型训练脚本
+# scripts/train_basic_static_cnn-lstm.py —— CNN+LSTM 混合模型训练脚本
 # ============================================================
 # TODO 2.3 的核心脚本：在 FD001 数据集上训练 CNN+LSTM 混合模型
 # 该模型不含图结构，用于证明显式建模传感器关联的必要性
@@ -37,7 +37,7 @@ from configs.config import (
 )
 from core_models.base_models import CNN_LSTM_Model
 from utils.loss_functions import CombinedLoss
-from utils.metrics import evaluate_metrics
+from utils.metrics import evaluate_metrics, compute_rmse, compute_nasa_score
 from utils.data_processor import split_by_unit
 
 # ============================================================
@@ -236,6 +236,7 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         val_losses = []
 
     patience_counter = 0
+    val_rmses, val_nasa_scores = [], []
 
     print(f"\n{'='*60}")
     print(f"  🚀 开始训练 CNN+LSTM 混合模型")
@@ -254,6 +255,10 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         # ---- 记录 ----
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        val_rmse = compute_rmse(y_pred, y_true)
+        val_nasa = compute_nasa_score(y_pred, y_true)
+        val_rmses.append(float(val_rmse))
+        val_nasa_scores.append(float(val_nasa))
 
         epoch_time = time.time() - epoch_start
 
@@ -272,6 +277,8 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
         # ---- 保存最佳模型 ----
         if val_loss < best_loss:
             best_loss = val_loss
+            best_rmse = val_rmse
+            best_nasa = val_nasa
             patience_counter = 0
 
             best_model_path = 'saved_models/original_paper_static/baselines/cnn_lstm_best_FD001.pt'
@@ -279,6 +286,8 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
                 'epoch': epoch,
+                'best_val_rmse': float(best_rmse),
+                'best_val_nasa_score': float(best_nasa),
             }, best_model_path)
             print(f"  ⭐ 新的最佳模型！Val Loss: {best_loss:.4f} → {best_model_path}")
         else:
@@ -297,23 +306,28 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
     print(f"  ✅ 训练完成！最佳验证损失: {best_loss:.4f}")
     print(f"{'='*60}")
 
-    return model, train_losses, val_losses
+    return model, train_losses, val_losses, val_rmses, val_nasa_scores
 
 
 # ============================================================
 # 7. 保存训练日志
 # ============================================================
-def save_training_log(train_losses, val_losses, subset='FD001'):
+def save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001'):
     """将训练过程的损失记录保存为 JSON 文件"""
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = f'logs/cnn_lstm_{subset}_{timestamp}.json'
+    best_idx = val_losses.index(min(val_losses)) if val_losses else 0
 
     log_data = {
         'model': 'CNN_LSTM_Model',
         'subset': subset,
         'train_losses': train_losses,
         'val_losses': val_losses,
+        'val_rmses': val_rmses,
+        'val_nasa_scores': val_nasa_scores,
         'best_val_loss': min(val_losses) if val_losses else None,
+        'best_val_rmse': val_rmses[best_idx] if val_rmses else None,
+        'best_val_nasa_score': val_nasa_scores[best_idx] if val_nasa_scores else None,
         'num_epochs': len(train_losses),
     }
 
@@ -382,7 +396,7 @@ if __name__ == '__main__':
 
     # ---- 4. 训练 ----
     try:
-        model, train_losses, val_losses = train(
+        model, train_losses, val_losses, val_rmses, val_nasa_scores = train(
             model, train_loader, val_loader, loss_fn, optimizer, device,
             num_epochs=NUM_EPOCHS,
             patience=EARLY_STOP_PATIENCE,
@@ -394,7 +408,7 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # ---- 5. 保存训练日志 ----
-    save_training_log(train_losses, val_losses, subset='FD001')
+    save_training_log(train_losses, val_losses, val_rmses, val_nasa_scores, subset='FD001')
 
     # ---- 6. 加载最佳模型做最终评估 ----
     print(f"\n{'='*60}")

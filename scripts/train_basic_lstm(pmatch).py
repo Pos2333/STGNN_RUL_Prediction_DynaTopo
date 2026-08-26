@@ -1,5 +1,5 @@
 # ============================================================
-# scripts/train_basic_lstm_pmatch.py —— 参数匹配 LSTM 训练脚本
+# scripts/train_basic_lstm(pmatch).py —— 参数匹配 LSTM 训练脚本
 # ============================================================
 # 目的：训练一个参数量与静态 STGNN 相近的 LSTM（Parameter-matched
 #       LSTM），作为参数量公平性对照基线。

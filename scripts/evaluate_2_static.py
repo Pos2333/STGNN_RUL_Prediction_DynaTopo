@@ -56,7 +56,8 @@ def load_test_data(subset, processed_dir='data/processed'):
 
     test_data = np.load(test_path)
     X_test = test_data['X']
-    y_test = test_data['y']
+    y_test = test_data['y']  # 截断 RUL（max=125），用于 RMSE
+    true_rul = test_data.get('true_rul', y_test)  # 原始 RUL 真值，用于 NASA Score
 
     graph = torch.load(graph_path)
     edge_index = graph['edge_index']
@@ -70,7 +71,7 @@ def load_test_data(subset, processed_dir='data/processed'):
     loader = DataLoader(dataset, batch_size=BATCH_SIZE,
                         shuffle=False, drop_last=False)
 
-    return loader, edge_index, y_test
+    return loader, edge_index, y_test, true_rul
 
 
 # ============================================================
@@ -99,7 +100,7 @@ def build_model(device):
 # ============================================================
 # 3. 在单个测试集上评估一个模型
 # ============================================================
-def evaluate_on_subset(model, test_loader, edge_index, device, model_name):
+def evaluate_on_subset(model, test_loader, edge_index, device, model_name, true_rul=None):
     """
     在测试集上运行模型并返回指标
 
@@ -109,6 +110,7 @@ def evaluate_on_subset(model, test_loader, edge_index, device, model_name):
         edge_index: 图结构
         device:     设备
         model_name: 模型名称（用于打印）
+        true_rul:   原始 RUL 真值（numpy），用于 NASA Score；若为 None 则用截断标签
 
     返回:
         rmse, score
@@ -132,11 +134,20 @@ def evaluate_on_subset(model, test_loader, edge_index, device, model_name):
     y_true_all = np.concatenate(y_true_all, axis=0)
 
     rmse = compute_rmse(y_pred_all, y_true_all)
-    score = compute_nasa_score(y_pred_all, y_true_all)
+    # NASA Score 使用原始 RUL 真值（官方要求），而非截断标签
+    score = compute_nasa_score(y_pred_all, true_rul if true_rul is not None else y_true_all)
 
     print(f"    RMSE: {rmse:.2f}, NASA Score: {score:.2f}")
 
     return rmse, score
+
+
+def read_checkpoint_info(ckpt):
+    """从 checkpoint 中提取 val_rmse / val_nasa / epoch 信息"""
+    return {
+        'val_rmse': ckpt.get('best_val_rmse', None),
+        'val_nasa': ckpt.get('best_val_nasa_score', None),
+    }
 
 
 # ============================================================
@@ -164,17 +175,19 @@ def run_evaluation(target_subsets=None):
         print(f"{'='*60}")
 
         # 加载测试数据
-        test_loader, edge_index, y_true = load_test_data(target)
+        test_loader, edge_index, y_true, true_rul = load_test_data(target)
 
         # ---- A. 无迁移：FD001 预训练模型直接测试 ----
         model_no_transfer = build_model(device)
         pretrain_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
+        val_info_a = {}
         if os.path.exists(pretrain_path):
             ckpt = torch.load(pretrain_path, map_location=device)
             model_no_transfer.load_state_dict(ckpt['model_state_dict'])
+            val_info_a = read_checkpoint_info(ckpt)
             rmse_a, score_a = evaluate_on_subset(
                 model_no_transfer, test_loader, edge_index, device,
-                f"无迁移 (FD001→{target})"
+                f"无迁移 (FD001→{target})", true_rul=true_rul
             )
         else:
             print(f"  ⚠️  未找到 {pretrain_path}，跳过")
@@ -187,12 +200,14 @@ def run_evaluation(target_subsets=None):
         )
         model_uda = build_model(device)
 
+        val_info_uda = {}
         if os.path.exists(uda_path):
             ckpt_u = torch.load(uda_path, map_location=device)
             model_uda.load_state_dict(ckpt_u['model_state_dict'])
+            val_info_uda = read_checkpoint_info(ckpt_u)
             rmse_uda, score_uda = evaluate_on_subset(
                 model_uda, test_loader, edge_index, device,
-                f"UDA 无监督 (FD001→{target}, 仅LMMD)"
+                f"UDA 无监督 (FD001→{target}, 仅LMMD)", true_rul=true_rul
             )
         else:
             print(f"  ⚠️  未找到 UDA 模型 {uda_path}，请先运行 train_transfer.py --adapt_mode lmmd_uda")
@@ -205,46 +220,49 @@ def run_evaluation(target_subsets=None):
         )
         model_transfer = build_model(device)
 
+        val_info_semi = {}
         if os.path.exists(transfer_path):
             ckpt_t = torch.load(transfer_path, map_location=device)
             model_transfer.load_state_dict(ckpt_t['model_state_dict'])
+            val_info_semi = read_checkpoint_info(ckpt_t)
             rmse_b, score_b = evaluate_on_subset(
                 model_transfer, test_loader, edge_index, device,
-                f"半监督 (FD001→{target}, LMMD+目标域标签)"
+                f"半监督 (FD001→{target}, LMMD+目标域标签)", true_rul=true_rul
             )
         else:
             print(f"  ⚠️  未找到迁移模型 {transfer_path}，请先运行 train_transfer.py")
             print(f"      提示: 需分别训练 FD001→{target} 的迁移模型")
             rmse_b, score_b = None, None
 
+        num_params = sum(p.numel() for p in build_model(device).parameters())
         results[target] = {
-            'no_transfer': {'rmse': rmse_a, 'score': score_a},
-            'uda':          {'rmse': rmse_uda, 'score': score_uda},
-            'semi_supervised': {'rmse': rmse_b, 'score': score_b},
+            'no_transfer': {'rmse': rmse_a, 'score': score_a, **val_info_a},
+            'uda':          {'rmse': rmse_uda, 'score': score_uda, **val_info_uda},
+            'semi_supervised': {'rmse': rmse_b, 'score': score_b, **val_info_semi},
+            'params': num_params,
         }
 
     # ---- 打印汇总表格 ----
-    print(f"\n{'='*80}")
+    print(f"\n{'='*110}")
     print(f"  📊 跨工况迁移实验汇总（无迁移 vs UDA 无监督 vs 半监督）")
-    print(f"{'='*80}")
-    print(f"  {'数据集':<10} {'方法':<22} {'RMSE':>10} {'NASA Score':>15}")
-    print(f"  {'-'*57}")
+    print(f"{'='*110}")
+    print(f"  {'目标':<8} {'方法':<22} {'val RMSE':>10} {'val NASA':>10} {'test RMSE':>10} {'test NASA':>10} {'参数量':>12}")
+    print(f"  {'-'*86}")
 
     for target, res in results.items():
-        if res['no_transfer']['rmse'] is not None:
-            print(f"  {target:<10} {'无迁移':<22} "
-                  f"{res['no_transfer']['rmse']:>10.2f} "
-                  f"{res['no_transfer']['score']:>15.2f}")
-        if res['uda']['rmse'] is not None:
-            print(f"  {target:<10} {'UDA 无监督(LMMD)':<22} "
-                  f"{res['uda']['rmse']:>10.2f} "
-                  f"{res['uda']['score']:>15.2f}")
-        if res['semi_supervised']['rmse'] is not None:
-            print(f"  {target:<10} {'半监督(LMMD+目标标签)':<22} "
-                  f"{res['semi_supervised']['rmse']:>10.2f} "
-                  f"{res['semi_supervised']['score']:>15.2f}")
+        params = res.get('params', 0)
+        for method_key, method_label in [('no_transfer', '无迁移'), ('uda', 'UDA 无监督(LMMD)'), ('semi_supervised', '半监督(LMMD+目标标签)')]:
+            m = res[method_key]
+            if m['rmse'] is not None:
+                vrmse = m.get('val_rmse')
+                vnasa = m.get('val_nasa')
+                vrmse_str = f"{vrmse:.2f}" if vrmse is not None else "—"
+                vnasa_str = f"{vnasa:.1f}" if vnasa is not None else "—"
+                print(f"  {target:<8} {method_label:<22} "
+                      f"{vrmse_str:>10} {vnasa_str:>10} "
+                      f"{m['rmse']:>10.2f} {m['score']:>10.1f} {params:>12,}")
 
-    print(f"{'='*80}")
+    print(f"{'='*110}")
 
     # ---- 保存结果到 JSON ----
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -254,17 +272,24 @@ def run_evaluation(target_subsets=None):
     json_results = {}
     for target, res in results.items():
         json_results[target] = {
+            'params': int(res.get('params', 0)),
             'no_transfer': {
                 'rmse': float(res['no_transfer']['rmse']) if res['no_transfer']['rmse'] is not None else None,
                 'score': float(res['no_transfer']['score']) if res['no_transfer']['score'] is not None else None,
+                'val_rmse': float(res['no_transfer']['val_rmse']) if res['no_transfer'].get('val_rmse') is not None else None,
+                'val_nasa': float(res['no_transfer']['val_nasa']) if res['no_transfer'].get('val_nasa') is not None else None,
             },
             'uda': {
                 'rmse': float(res['uda']['rmse']) if res['uda']['rmse'] is not None else None,
                 'score': float(res['uda']['score']) if res['uda']['score'] is not None else None,
+                'val_rmse': float(res['uda']['val_rmse']) if res['uda'].get('val_rmse') is not None else None,
+                'val_nasa': float(res['uda']['val_nasa']) if res['uda'].get('val_nasa') is not None else None,
             },
             'semi_supervised': {
                 'rmse': float(res['semi_supervised']['rmse']) if res['semi_supervised']['rmse'] is not None else None,
                 'score': float(res['semi_supervised']['score']) if res['semi_supervised']['score'] is not None else None,
+                'val_rmse': float(res['semi_supervised']['val_rmse']) if res['semi_supervised'].get('val_rmse') is not None else None,
+                'val_nasa': float(res['semi_supervised']['val_nasa']) if res['semi_supervised'].get('val_nasa') is not None else None,
             },
         }
 
@@ -272,7 +297,6 @@ def run_evaluation(target_subsets=None):
         json.dump(json_results, f, ensure_ascii=False, indent=2)
 
     print(f"\n📝 评估结果已保存 → {log_path}")
-    print(f"\n🎉 TODO 5 动作2完成！跨工况迁移实验评估完毕。")
 
 
 # ============================================================
