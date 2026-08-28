@@ -179,7 +179,7 @@ def run_evaluation(target_subsets=None):
 
         # ---- A. 无迁移：FD001 预训练模型直接测试 ----
         model_no_transfer = build_model(device)
-        pretrain_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
+        pretrain_path = 'saved_models/retrained_20260826/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
         val_info_a = {}
         if os.path.exists(pretrain_path):
             ckpt = torch.load(pretrain_path, map_location=device)
@@ -195,7 +195,7 @@ def run_evaluation(target_subsets=None):
 
         # ---- B. UDA 无监督：FD001→target 迁移模型（仅 LMMD，不用目标域标签） ----
         uda_path = (
-            'saved_models/original_paper_static/transfer/lmmd_uda/'
+            'saved_models/retrained_20260826/original_paper_static/transfer/lmmd_uda/'
             f'transfer_static_lmmd_uda_best_{target}.pt'
         )
         model_uda = build_model(device)
@@ -215,7 +215,7 @@ def run_evaluation(target_subsets=None):
 
         # ---- C. 半监督：FD001→target 迁移模型（源域+目标域监督 + LMMD） ----
         transfer_path = (
-            'saved_models/original_paper_static/transfer/lmmd_semi/'
+            'saved_models/retrained_20260826/original_paper_static/transfer/lmmd_semi/'
             f'transfer_static_lmmd_semi_best_{target}.pt'
         )
         model_transfer = build_model(device)

@@ -10,7 +10,7 @@
 #   3. 使用 CombinedLoss (MSE + NASA Score)
 #   4. 支持训练中断后恢复（checkpoint 机制）
 #   5. 早停（Early Stopping）防止过拟合
-#   6. 训练完成后保存最佳模型到 saved_models/
+#   6. 训练完成后保存最佳模型到 saved_models/retrained_20260826/
 #   7. 记录训练日志到 logs/
 #
 # ⚠️ 注意：数据加载方式与验证集划分方式
@@ -129,7 +129,7 @@ def load_data(subset='FD001', processed_dir='data/processed', val_ratio=0.2):
 # 2. 保存 checkpoint（用于暂停后恢复训练）
 # ============================================================
 def save_checkpoint(model, optimizer, epoch, best_loss, train_losses, val_losses,
-                    filepath='saved_models/original_paper_static/baselines/gru_checkpoint.pt'):
+                    filepath='saved_models/retrained_20260826/original_paper_static/baselines/gru_checkpoint.pt'):
     """
     保存训练状态，支持断点续训
 
@@ -142,6 +142,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss, train_losses, val_losses
         val_losses:   验证损失历史列表
         filepath:     保存路径
     """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
@@ -156,7 +157,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss, train_losses, val_losses
 # ============================================================
 # 3. 加载 checkpoint（恢复训练）
 # ============================================================
-def load_checkpoint(model, optimizer, filepath='saved_models/original_paper_static/baselines/gru_checkpoint.pt'):
+def load_checkpoint(model, optimizer, filepath='saved_models/retrained_20260826/original_paper_static/baselines/gru_checkpoint.pt'):
     """
     从 checkpoint 恢复训练状态
 
@@ -261,7 +262,7 @@ def validate(model, dataloader, loss_fn, device):
 # ============================================================
 def train(model, train_loader, val_loader, loss_fn, optimizer, device,
           num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
-          resume=False, checkpoint_path='saved_models/original_paper_static/baselines/gru_checkpoint.pt'):
+          resume=False, checkpoint_path='saved_models/retrained_20260826/original_paper_static/baselines/gru_checkpoint.pt'):
     """
     GRU 模型主训练循环
 
@@ -341,7 +342,8 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, device,
             patience_counter = 0
 
             # 保存最佳模型
-            best_model_path = 'saved_models/original_paper_static/baselines/gru_best_FD001.pt'
+            best_model_path = 'saved_models/retrained_20260826/original_paper_static/baselines/gru_best_FD001.pt'
+            os.makedirs(os.path.dirname(best_model_path), exist_ok=True)
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'best_loss': best_loss,
@@ -492,7 +494,7 @@ if __name__ == '__main__':
     print(f"  加载最佳模型进行最终评估...")
     print(f"{'='*60}")
 
-    best_checkpoint = torch.load('saved_models/original_paper_static/baselines/gru_best_FD001.pt')
+    best_checkpoint = torch.load('saved_models/retrained_20260826/original_paper_static/baselines/gru_best_FD001.pt')
     model.load_state_dict(best_checkpoint['model_state_dict'])
     print(f"  已加载最佳模型 (Epoch {best_checkpoint['epoch']+1}, Val Loss: {best_checkpoint['best_loss']:.4f})")
 

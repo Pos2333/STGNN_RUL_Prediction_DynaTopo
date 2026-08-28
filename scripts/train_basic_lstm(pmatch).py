@@ -43,7 +43,7 @@ PMATCH_DROPOUT = 0.3
 PMATCH_LR = 0.0003           # 较小学习率，减缓收敛、扩大过渡窗口
 TARGET_EPOCHS = 11           # 固定轻训练轮数（欠拟合对照）
 
-SAVE_PATH = 'saved_models/original_paper_static/baselines/lstm_pmatch_best_FD001.pt'
+SAVE_PATH = 'saved_models/retrained_20260826/original_paper_static/baselines/lstm_pmatch_best_FD001.pt'
 
 
 def load_data(subset='FD001', processed_dir='data/processed', val_ratio=0.2):

@@ -106,7 +106,7 @@ def main():
     # ================================================================
     # 1. 静态基线
     # ================================================================
-    model_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
+    model_path = 'saved_models/retrained_20260826/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
     log_path = find_latest_log('stgnn_static_FD001_*.json')
     val_info = read_val_metrics_from_log(log_path) if log_path else {}
 
@@ -147,7 +147,7 @@ def main():
     # 2. 四组双图模型
     # ================================================================
     for preset, cfg in EXPERIMENT_MATRIX.items():
-        model_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
+        model_path = f'saved_models/retrained_20260826/dynatopo_{preset}_best_FD001.pt'
         log_path = find_latest_log(f'{preset}_FD001_*.json')
         val_info = read_val_metrics_from_log(log_path) if log_path else {}
 

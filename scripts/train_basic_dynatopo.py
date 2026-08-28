@@ -129,6 +129,7 @@ def validate(model, loader, loss_fn, edge_index, device):
 
 def save_checkpoint(model, optimizer, epoch, best_loss,
                     train_losses, val_losses, filepath, preset):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     torch.save({
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
@@ -190,7 +191,8 @@ def train(model, train_loader, val_loader, loss_fn, optimizer, edge_index,
             best_rmse = val_rmse
             best_nasa = val_nasa
             patience_counter = 0
-            best_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
+            best_path = f'saved_models/retrained_20260826/dynatopo_{preset}_best_FD001.pt'
+            os.makedirs(os.path.dirname(best_path), exist_ok=True)
             torch.save({'model_state_dict': model.state_dict(),
                         'best_loss': best_loss, 'epoch': epoch, 'preset': preset,
                         'best_val_rmse': float(best_rmse), 'best_val_nasa_score': float(best_nasa)}, best_path)
@@ -270,7 +272,7 @@ if __name__ == '__main__':
     loss_fn = CombinedLoss(mse_weight=MSE_WEIGHT, nasa_weight=NASA_SCORE_WEIGHT)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    checkpoint_path = f'saved_models/dynatopo_{args.preset}_checkpoint.pt'
+    checkpoint_path = f'saved_models/retrained_20260826/dynatopo_{args.preset}_checkpoint.pt'
 
     model, train_losses, val_losses, val_rmses, val_nasa_scores = train(
         model, train_loader, val_loader, loss_fn, optimizer, edge_index,
@@ -282,11 +284,11 @@ if __name__ == '__main__':
     save_log(train_losses, val_losses, val_rmses, val_nasa_scores, args.preset)
 
     # 加载最佳模型
-    best_path = f'saved_models/dynatopo_{args.preset}_best_FD001.pt'
+    best_path = f'saved_models/retrained_20260826/dynatopo_{args.preset}_best_FD001.pt'
     best_ckpt = torch.load(best_path, map_location='cpu')
     model.load_state_dict(best_ckpt['model_state_dict'])
     print(f"\n📊 验证集最终评估:")
     val_loss, y_pred, y_true = validate(model, val_loader, loss_fn, edge_index, device)
     evaluate_metrics(y_pred, y_true, print_result=True)
 
-    print(f"\n✅ 训练完成！模型: saved_models/dynatopo_{args.preset}_best_FD001.pt")
+    print(f"\n✅ 训练完成！模型: saved_models/retrained_20260826/dynatopo_{args.preset}_best_FD001.pt")

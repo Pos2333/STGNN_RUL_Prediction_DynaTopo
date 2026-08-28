@@ -159,6 +159,7 @@ def load_transfer_data(source_subset='FD001', target_subset='FD002',
 # 2. 保存 / 加载 checkpoint
 # ============================================================
 def save_checkpoint(state, filepath):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     torch.save(state, filepath)
     print(f"  💾 Checkpoint 已保存 → {filepath}")
 
@@ -304,7 +305,7 @@ def train_transfer(model, src_train_loader, src_val_loader,
                    num_epochs=NUM_EPOCHS, patience=EARLY_STOP_PATIENCE,
                    lmmd_lambda=LMMD_LAMBDA,
                    resume=False,
-                   checkpoint_path='saved_models/original_paper_static/transfer/lmmd_semi/transfer_static_lmmd_semi_checkpoint_FD002.pt',
+                   checkpoint_path='saved_models/retrained_20260826/original_paper_static/transfer/lmmd_semi/transfer_static_lmmd_semi_checkpoint_FD002.pt',
                    prefix='static',
                    adapt_mode='lmmd_semi'):
     """
@@ -395,11 +396,11 @@ def train_transfer(model, src_train_loader, src_val_loader,
 
             if prefix == 'static':
                 best_model_path = (
-                    f'saved_models/original_paper_static/transfer/{adapt_mode}/'
+                    f'saved_models/retrained_20260826/original_paper_static/transfer/{adapt_mode}/'
                     f'transfer_static_{adapt_mode}_best_{target_subset}.pt'
                 )
             else:
-                best_model_path = f'saved_models/transfer_{prefix}_{adapt_mode}_best_{target_subset}.pt'
+                best_model_path = f'saved_models/retrained_20260826/transfer_{prefix}_{adapt_mode}_best_{target_subset}.pt'
             os.makedirs(os.path.dirname(best_model_path), exist_ok=True)
             torch.save({
                 'model_state_dict': model.state_dict(),
@@ -493,7 +494,7 @@ def build_and_load_model(source_subset, device, resume, pretrain_path, preset='s
     if not resume:
         if not os.path.exists(pretrain_path):
             # 尝试从 ablation 模型复制
-            alt_path = 'saved_models/original_paper_static/ablation/ablation_无_Transformer.pt'
+            alt_path = 'saved_models/retrained_20260826/original_paper_static/ablation/ablation_无_Transformer.pt'
             if os.path.exists(alt_path):
                 print(f"\n⚠️  未找到 {pretrain_path}")
                 print(f"  💡 找到消融实验模型 {alt_path}，将复制作为预训练权重")
@@ -504,6 +505,7 @@ def build_and_load_model(source_subset, device, resume, pretrain_path, preset='s
                 else:
                     sd = alt_state
                 # 保存为标准 checkpoint 格式
+                os.makedirs(os.path.dirname(pretrain_path), exist_ok=True)
                 torch.save({'model_state_dict': sd, 'epoch': 0, 'best_loss': 0},
                            pretrain_path)
                 print(f"  ✅ 已创建 {pretrain_path}")
@@ -535,18 +537,18 @@ def train_single_target(source_subset, target_subset, device, resume=False,
     prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
     if preset == 'static':
         checkpoint_path = (
-            f'saved_models/original_paper_static/transfer/{adapt_mode}/'
+            f'saved_models/retrained_20260826/original_paper_static/transfer/{adapt_mode}/'
             f'transfer_static_{adapt_mode}_checkpoint_{target_subset}.pt'
         )
     else:
-        checkpoint_path = f'saved_models/transfer_{prefix}_{adapt_mode}_checkpoint_{target_subset}.pt'
+        checkpoint_path = f'saved_models/retrained_20260826/transfer_{prefix}_{adapt_mode}_checkpoint_{target_subset}.pt'
     if preset == 'static':
         pretrain_path = (
-            'saved_models/original_paper_static/stgnn/'
+            'saved_models/retrained_20260826/original_paper_static/stgnn/'
             f'stgnn_static_best_{source_subset}.pt'
         )
     else:
-        pretrain_path = f'saved_models/dynatopo_{preset}_best_{source_subset}.pt'
+        pretrain_path = f'saved_models/retrained_20260826/dynatopo_{preset}_best_{source_subset}.pt'
 
     # ---- 加载数据 ----
     (src_train_loader, src_val_loader,
@@ -638,5 +640,5 @@ if __name__ == '__main__':
 
     print(f"\n{'='*60}")
     print(f"  🎉 全部迁移学习训练完成！")
-    print(f"  模型保存在: saved_models/transfer_*_best_*.pt")
+    print(f"  模型保存在: saved_models/retrained_20260826/transfer_*_best_*.pt")
     print(f"{'='*60}")

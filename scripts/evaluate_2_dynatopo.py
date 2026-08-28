@@ -125,9 +125,9 @@ def main():
         prefix = 'static' if preset == 'static' else f'dynatopo_{preset}'
         # FD001 预训练模型路径
         if preset == 'static':
-            pretrain_path = 'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
+            pretrain_path = 'saved_models/retrained_20260826/original_paper_static/stgnn/stgnn_static_best_FD001.pt'
         else:
-            pretrain_path = f'saved_models/dynatopo_{preset}_best_FD001.pt'
+            pretrain_path = f'saved_models/retrained_20260826/dynatopo_{preset}_best_FD001.pt'
 
         print(f"\n{'#'*70}")
         print(f"#  模型: {preset}")
@@ -154,10 +154,10 @@ def main():
 
             # ---- 半监督 LMMD：迁移模型 ----
             transfer_path = (
-                f'saved_models/original_paper_static/transfer/lmmd_semi/'
+                f'saved_models/retrained_20260826/original_paper_static/transfer/lmmd_semi/'
                 f'transfer_static_lmmd_semi_best_{target}.pt'
                 if preset == 'static' else
-                f'saved_models/transfer_{prefix}_lmmd_semi_best_{target}.pt'
+                f'saved_models/retrained_20260826/transfer_{prefix}_lmmd_semi_best_{target}.pt'
             )
             semi_rmse = semi_score = None
             semi_val = {}
@@ -176,10 +176,10 @@ def main():
 
             # ---- 无自适应（none）：目标域有监督微调，作为域自适应基线下限 ----
             none_path = (
-                f'saved_models/original_paper_static/transfer/none/'
+                f'saved_models/retrained_20260826/original_paper_static/transfer/none/'
                 f'transfer_static_none_best_{target}.pt'
                 if preset == 'static' else
-                f'saved_models/transfer_{prefix}_none_best_{target}.pt'
+                f'saved_models/retrained_20260826/transfer_{prefix}_none_best_{target}.pt'
             )
             none_rmse = none_score = None
             none_val = {}
@@ -198,10 +198,10 @@ def main():
 
             # ---- 无监督域自适应（lmmd_uda）：目标域无标签，单向 LMMD ----
             uda_path = (
-                f'saved_models/original_paper_static/transfer/lmmd_uda/'
+                f'saved_models/retrained_20260826/original_paper_static/transfer/lmmd_uda/'
                 f'transfer_static_lmmd_uda_best_{target}.pt'
                 if preset == 'static' else
-                f'saved_models/transfer_{prefix}_lmmd_uda_best_{target}.pt'
+                f'saved_models/retrained_20260826/transfer_{prefix}_lmmd_uda_best_{target}.pt'
             )
             uda_rmse = uda_score = None
             uda_val = {}

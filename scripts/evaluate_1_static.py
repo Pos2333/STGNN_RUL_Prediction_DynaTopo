@@ -129,7 +129,7 @@ def build_tcn(device):
 
 
 def build_cnn_lstm(device):
-    """CNN_LSTM_Model —— 与 train_basic_cnn_lstm.py 一致"""
+    """CNN_LSTM_Model —— 与 train_basic_cnn-lstm.py 一致"""
     return CNN_LSTM_Model(
         input_dim=NUM_FEATURES,
         cnn_channels=64,
@@ -319,11 +319,11 @@ if __name__ == '__main__':
 
     # ---- 2. 定义评估任务（模型名, 构建函数, 权重路径, edge_index） ----
     tasks = [
-        ('LSTM', build_lstm, 'saved_models/original_paper_static/baselines/lstm_pmatch_best_FD001.pt', None),
-        ('STGNN',      build_stgnn,   'saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt', edge_index),
-        ('GRU',        build_gru,     'saved_models/original_paper_static/baselines/gru_best_FD001.pt',          None),
-        ('TCN',        build_tcn,     'saved_models/original_paper_static/baselines/tcn_best_FD001.pt',          None),
-        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/original_paper_static/baselines/cnn_lstm_best_FD001.pt',    None),
+        ('LSTM', build_lstm, 'saved_models/retrained_20260826/original_paper_static/baselines/lstm_pmatch_best_FD001.pt', None),
+        ('STGNN',      build_stgnn,   'saved_models/retrained_20260826/original_paper_static/stgnn/stgnn_static_best_FD001.pt', edge_index),
+        ('GRU',        build_gru,     'saved_models/retrained_20260826/original_paper_static/baselines/gru_best_FD001.pt',          None),
+        ('TCN',        build_tcn,     'saved_models/retrained_20260826/original_paper_static/baselines/tcn_best_FD001.pt',          None),
+        ('CNN+LSTM',   build_cnn_lstm, 'saved_models/retrained_20260826/original_paper_static/baselines/cnn-lstm_best_FD001.pt',    None),
     ]
 
     # ---- 3. 依次评估各模型 ----

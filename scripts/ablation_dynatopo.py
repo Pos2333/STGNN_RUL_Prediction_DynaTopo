@@ -192,7 +192,7 @@ def main():
 
     src_tr, src_va, tgt_tr, tgt_va, src_edge, tgt_edge = load_transfer_data()
     loss_fn = CombinedLoss(MSE_WEIGHT, NASA_SCORE_WEIGHT)
-    pretrain = torch.load('saved_models/dynatopo_A2B2_best_FD001.pt',
+    pretrain = torch.load('saved_models/retrained_20260826/dynatopo_A2B2_best_FD001.pt',
                           map_location=device, weights_only=False)['model_state_dict']
 
     results = {}
@@ -207,7 +207,7 @@ def main():
             print(f"  📥 已加载 A2B2 预训练权重（strict=False）")
         else:
             # 静态模型加载静态预训练
-            sp = torch.load('saved_models/original_paper_static/stgnn/stgnn_static_best_FD001.pt',
+            sp = torch.load('saved_models/retrained_20260826/original_paper_static/stgnn/stgnn_static_best_FD001.pt',
                             map_location=device, weights_only=False)['model_state_dict']
             model.load_state_dict(sp)
             print(f"  📥 已加载 static 预训练权重")
